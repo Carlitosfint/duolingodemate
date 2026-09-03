@@ -1,0 +1,6 @@
+{
+  "name": "Colegio Ángeles de Jesús - Finanzas",
+  "description": "Aplicación interactiva de finanzas, porcentajes y variaciones de áreas para estudiantes del Colegio Ángeles de Jesús.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

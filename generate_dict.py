@@ -1,0 +1,978 @@
+import re
+
+# I will write a script that constructs the entire DictLabModal.tsx content to be perfectly formatted
+
+code = """
+import { Icon } from './CustomIcons';
+import React, { useState, useEffect } from 'react';
+import { Card, Button } from './UI';
+import { motion, AnimatePresence } from 'motion/react';
+
+interface DictLabModalProps {
+  onClose?: () => void;
+  isInline?: boolean;
+  activeCourse?: string;
+}
+
+export const DictLabModal: React.FC<DictLabModalProps> = ({ onClose, isInline, activeCourse }) => {
+  const [activeTab, setActiveTab] = useState<string>('');
+
+  const allTabs: any = {
+    razonamiento_5to: [
+      { id: 'edades', label: 'Edades', icon: '👨‍👦' },
+      { id: 'cronometria', label: 'Cronometría', icon: '⏳' },
+      { id: 'logica', label: 'Lógica Inferencial', icon: '🧠' },
+      { id: 'mezclas', label: 'Fracciones y Mezclas', icon: '🧪' },
+      { id: 'financiera', label: 'Mate Financiera', icon: '💰' },
+      { id: 'planteo', label: 'Planteo Ecuaciones', icon: '📊' }
+    ],
+    trigonometria: [
+      { id: 'rt', label: 'Propiedades RT', icon: '📐' },
+      { id: 'triangulos', label: 'Resolución de Triángulos', icon: '📐' },
+      { id: 'verticales', label: 'Ángulos Verticales', icon: '👀' },
+      { id: 'geo_ana', label: 'Geometría Analítica', icon: '📍' },
+      { id: 'pos_norm', label: 'Posición Normal', icon: '🔄' }
+    ],
+    razonamiento: [
+      { id: 'figures', label: 'Figuras Clave', icon: '📐' },
+      { id: 'factors', label: 'Factores %', icon: '🔢' },
+      { id: '1d', label: 'Regla 1D', icon: '💡' },
+      { id: '2d', label: 'Regla 2D', icon: '📐' },
+    ],
+    geometria_5to: [
+      { id: 'metrica', label: 'Relaciones Métricas', icon: '📏' },
+      { id: 'areas', label: 'Áreas de Regiones', icon: '📐' },
+      { id: 'circulos', label: 'Superficies Circ.', icon: '⭕' },
+      { id: 'espacio', label: 'Geometría Espacio', icon: '🧊' },
+      { id: 'solidos', label: 'Sólidos y Poliedros', icon: '🎲' }
+    ]
+  };
+
+  const currentTabs = allTabs[activeCourse as string] || allTabs.razonamiento;
+  const tabOrder = currentTabs.map((t: any) => t.id);
+
+  useEffect(() => {
+    setActiveTab(tabOrder[0]);
+  }, [activeCourse]);
+
+  if (!activeTab && tabOrder.length > 0) setActiveTab(tabOrder[0]);
+
+  const handleNext = () => {
+    const currentIndex = tabOrder.indexOf(activeTab);
+    if (currentIndex < tabOrder.length - 1) {
+      setActiveTab(tabOrder[currentIndex + 1]);
+    } else if (onClose) {
+      onClose();
+    }
+  };
+
+  const handlePrev = () => {
+    const currentIndex = tabOrder.indexOf(activeTab);
+    if (currentIndex > 0) {
+      setActiveTab(tabOrder[currentIndex - 1]);
+    }
+  };
+
+  const currentIndex = tabOrder.indexOf(activeTab);
+
+  const content = (
+    <Card className={`w-full ${isInline ? 'h-full border-0 rounded-none bg-transparent shadow-none p-4 md:p-6' : 'max-w-4xl max-h-[90vh] md:max-h-[85vh] border-4 border-indigo-500 bg-white p-4 md:p-8'} flex flex-col overflow-hidden`}>
+      {/* Header */}
+      <div className="w-full flex justify-between items-center mb-4 md:mb-6 shrink-0 border-b-2 border-indigo-100 pb-4">
+        <div className="flex items-center gap-3">
+          <span className="text-4xl md:text-5xl drop-shadow-sm select-none">📖</span>
+          <div className="text-left">
+            <h3 className="text-xl md:text-3xl font-black text-indigo-700 leading-tight">Códice de Fórmulas</h3>
+            <p className="text-[10px] md:text-sm font-bold text-slate-500 uppercase tracking-widest mt-1">Repaso Teórico y Trucos ✨</p>
+          </div>
+        </div>
+        {!isInline && onClose && (
+          <button
+              onClick={onClose}
+              className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-red-500 flex items-center justify-center font-black transition-colors shadow-sm cursor-pointer border border-slate-200 text-lg md:text-xl shrink-0"
+          >
+            ×
+          </button>
+        )}
+      </div>
+
+      {/* Tabs Selector */}
+      <div className="w-full flex bg-slate-100 p-1.5 rounded-2xl mb-4 md:mb-6 overflow-x-auto shrink-0 no-scrollbar gap-1 custom-scrollbar">
+        {currentTabs.map((tab: any) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex-1 py-2 md:py-3 px-3 md:px-4 rounded-xl font-bold text-[11px] md:text-sm flex items-center justify-center gap-2 transition-all relative shrink-0 cursor-pointer min-w-[130px] md:min-w-0 ${
+                isActive ? 'text-indigo-700' : 'text-slate-500 hover:text-indigo-900'
+              }`}
+            >
+              {isActive && (
+                <motion.div
+                  layoutId="codice-tab"
+                  className="absolute inset-0 bg-white border-2 border-indigo-200 shadow-sm rounded-xl"
+                  transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+                />
+              )}
+              <span className="text-base md:text-lg relative z-10">{tab.icon}</span>
+              <span className="relative z-10 whitespace-nowrap">{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Content Area */}
+      <div className="w-full flex-1 overflow-y-auto pr-2 text-left relative min-h-[350px] flex flex-col justify-start custom-scrollbar">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+            className="w-full h-full flex flex-col justify-start gap-4 pb-10"
+          >
+            {/* RAZONAMIENTO 5TO */}
+            {activeCourse === 'razonamiento_5to' && activeTab === 'planteo' && (
+              <div className="space-y-6">
+                <div className="bg-emerald-50 p-6 rounded-3xl border-2 border-emerald-200 shadow-sm">
+                  <h4 className="font-black text-emerald-900 text-2xl mb-3 flex items-center gap-2">📊 Planteo de Ecuaciones</h4>
+                  <p className="text-emerald-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Traducir un problema verbal a lenguaje matemático es el primer gran paso. En 5to, te enfrentarás a sistemas de ecuaciones, inecuaciones y problemas de optimización.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                         <strong className="text-emerald-700 text-lg">Lectura Inicial</strong>
+                         <span className="text-2xl font-black text-emerald-300">📖</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Lee todo el problema primero.</p>
+                      <div className="bg-emerald-50 p-2 rounded-lg text-center font-bold text-emerald-700 border border-emerald-100">
+                        Antes de escribir "x", asegúrate de saber exactamente <b>qué te piden hallar</b>.
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                         <strong className="text-emerald-700 text-lg">Minimizar Variables</strong>
+                         <span className="text-2xl font-black text-emerald-300">➖</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Usa una sola variable si es posible.</p>
+                      <ul className="list-disc pl-5 text-slate-500 font-medium text-sm">
+                        <li>Si la suma es 20, usa <code className="text-emerald-600 font-bold">x</code> y <code className="text-emerald-600 font-bold">20 - x</code> en lugar de <code className="text-emerald-600 font-bold">x</code> e <code className="text-emerald-600 font-bold">y</code>.</li>
+                      </ul>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm hover:shadow-md transition-shadow md:col-span-2">
+                      <div className="flex justify-between items-center mb-2">
+                         <strong className="text-emerald-700 text-lg">Optimización (Máximos y Mínimos)</strong>
+                         <span className="text-2xl font-black text-emerald-300">📈</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Si obtienes una función cuadrática <code className="bg-slate-100 text-emerald-600 px-1 rounded font-mono">ax² + bx + c</code>, recuerda la fórmula del vértice:</p>
+                      <div className="bg-emerald-50 p-2 rounded-lg text-center font-bold text-emerald-700 border border-emerald-100 text-lg font-mono">
+                        x = -b / (2a)
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeCourse === 'razonamiento_5to' && activeTab === 'edades' && (
+              <div className="space-y-6">
+                <div className="bg-blue-50 p-6 rounded-3xl border-2 border-blue-200 shadow-sm">
+                  <h4 className="font-black text-blue-900 text-2xl mb-3 flex items-center gap-2">👨‍👦 Problemas de Edades</h4>
+                  <p className="text-blue-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    ¡El secreto está en ordenar el tiempo! Utiliza una tabla de <strong>Pasado - Presente - Futuro</strong> para alinear a los sujetos.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-blue-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                         <strong className="text-blue-700 text-lg">Diferencia Constante</strong>
+                         <span className="text-2xl font-black text-blue-300">⏱️</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">La diferencia de edades entre dos personas <b>NUNCA cambia</b>.</p>
+                      <div className="bg-blue-50 p-2 rounded-lg text-center font-bold text-blue-700 border border-blue-100">
+                        Si yo soy 5 años mayor que tú hoy, lo fui hace 10 años y lo seré dentro de 20.
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-blue-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                         <strong className="text-blue-700 text-lg">Suma en Aspa</strong>
+                         <span className="text-2xl font-black text-blue-300">✖️</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">En una tabla de 2 personas, la suma en aspa de tiempos simétricos es igual.</p>
+                      <ul className="list-disc pl-5 text-slate-500 font-medium text-sm">
+                        <li>Yo (pasado) + Tú (presente) = Yo (presente) + Tú (pasado).</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeCourse === 'razonamiento_5to' && activeTab === 'cronometria' && (
+              <div className="space-y-6">
+                <div className="bg-sky-50 p-6 rounded-3xl border-2 border-sky-200 shadow-sm">
+                  <h4 className="font-black text-sky-900 text-2xl mb-3 flex items-center gap-2">⏳ Cronometría Avanzada</h4>
+                  <p className="text-sky-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Problemas de relojes, campanadas, adelantos y atrasos. ¡Requiere mucha atención a las proporciones!
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-sky-100 shadow-sm hover:shadow-md transition-shadow md:col-span-2">
+                      <div className="flex justify-between items-center mb-2">
+                         <strong className="text-sky-700 text-lg">Ángulos entre Manecillas</strong>
+                         <span className="text-2xl font-black text-sky-300">⌚</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">La fórmula general para hallar el ángulo formado a una hora determinada es:</p>
+                      <div className="bg-sky-50 p-2 rounded-lg text-center font-bold text-sky-700 border border-sky-100 font-mono text-lg">
+                        θ = ± (11/2)M ∓ 30H
+                      </div>
+                      <p className="text-slate-500 text-sm mt-2 text-center">Elige el signo según quién adelante a quién en las manecillas.</p>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-sky-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                         <strong className="text-sky-700 text-lg">Campanadas</strong>
+                         <span className="text-2xl font-black text-sky-300">🔔</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">No cuentes las campanadas, ¡cuenta los intervalos entre ellas!</p>
+                      <div className="bg-sky-50 p-2 rounded-lg text-center font-bold text-sky-700 border border-sky-100">
+                        Intervalos = Campanadas - 1
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-sky-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                         <strong className="text-sky-700 text-lg">Adelantos y Atrasos</strong>
+                         <span className="text-2xl font-black text-sky-300">⌛</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Usa regla de 3 simple para calcular el tiempo de desajuste total.</p>
+                      <div className="bg-sky-50 p-2 rounded-lg text-center font-bold text-sky-700 border border-sky-100">
+                        Hora Real = Hora Falsa ± Desajuste
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeCourse === 'razonamiento_5to' && activeTab === 'logica' && (
+              <div className="space-y-6">
+                <div className="bg-purple-50 p-6 rounded-3xl border-2 border-purple-200 shadow-sm">
+                  <h4 className="font-black text-purple-900 text-2xl mb-3 flex items-center gap-2">🧠 Lógica Inferencial</h4>
+                  <p className="text-purple-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    La lógica proposicional nos permite deducir conclusiones a partir de proposiciones (p, q, r) mediante conectores lógicos. ¡Conocer sus valores de verdad es la clave para resolver cualquier deducción!
+                  </p>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    {/* Negación */}
+                    <div className="bg-white p-5 rounded-2xl border border-purple-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-purple-700 text-lg">Negación (~p)</strong>
+                        <span className="text-2xl font-black text-purple-300">~</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Cambia el valor de verdad de la proposición a su opuesto.</p>
+                      <ul className="list-disc pl-5 text-slate-500 font-medium">
+                        <li>Si p es <b>V</b> ➔ ~p es <b className="text-red-500">F</b></li>
+                        <li>Si p es <b>F</b> ➔ ~p es <b className="text-emerald-500">V</b></li>
+                      </ul>
+                    </div>
+
+                    {/* Conjunción */}
+                    <div className="bg-white p-5 rounded-2xl border border-purple-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-purple-700 text-lg">Conjunción (p ∧ q)</strong>
+                        <span className="text-2xl font-black text-purple-300">∧</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Representa la palabra <b>"y"</b>. Todo debe cumplirse.</p>
+                      <div className="bg-purple-50 p-2 rounded-lg text-center font-bold text-purple-700 border border-purple-100">
+                        Solo es <b className="text-emerald-600">VERDADERO (V)</b> si AMBAS (p y q) son verdaderas.
+                      </div>
+                    </div>
+
+                    {/* Disyunción */}
+                    <div className="bg-white p-5 rounded-2xl border border-purple-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-purple-700 text-lg">Disyunción (p ∨ q)</strong>
+                        <span className="text-2xl font-black text-purple-300">∨</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Representa la palabra <b>"o"</b>. Basta con que una se cumpla.</p>
+                      <div className="bg-purple-50 p-2 rounded-lg text-center font-bold text-purple-700 border border-purple-100">
+                        Solo es <b className="text-red-500">FALSO (F)</b> si AMBAS (p y q) son falsas.
+                      </div>
+                    </div>
+
+                    {/* Condicional */}
+                    <div className="bg-white p-5 rounded-2xl border border-purple-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-purple-700 text-lg">Condicional / Direccional (p → q)</strong>
+                        <span className="text-2xl font-black text-purple-300">→</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Representa el <b>"Si p, entonces q"</b>.</p>
+                      <div className="bg-purple-50 p-2 rounded-lg text-center font-bold text-purple-700 border border-purple-100">
+                        Solo es <b className="text-red-500">FALSO (F)</b> si se parte de una verdad para llegar a una falsedad (V → F = F).
+                      </div>
+                    </div>
+
+                    {/* Bicondicional */}
+                    <div className="bg-white p-5 rounded-2xl border border-purple-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-purple-700 text-lg">Bicondicional (p ↔ q)</strong>
+                        <span className="text-2xl font-black text-purple-300">↔</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Representa el <b>"Sí y solo sí"</b>. Ambas son un reflejo.</p>
+                      <div className="bg-purple-50 p-2 rounded-lg text-center font-bold text-purple-700 border border-purple-100">
+                        Es <b className="text-emerald-600">VERDADERO (V)</b> cuando ambas son iguales (V↔V ó F↔F).
+                      </div>
+                    </div>
+
+                    {/* Tips Clave */}
+                    <div className="bg-white p-5 rounded-2xl border border-purple-200 shadow-sm hover:shadow-md transition-shadow">
+                      <h5 className="font-bold text-purple-800 mb-2">💡 Tips Clave de Simplificación:</h5>
+                      <ul className="list-disc pl-5 text-slate-600 text-sm space-y-1">
+                        <li><b>Equivalencia Condicional:</b> <code className="bg-slate-100 px-1 rounded text-pink-600">(p → q) ≡ (~p ∨ q)</code></li>
+                        <li><b>Leyes de Morgan:</b> <code className="bg-slate-100 px-1 rounded text-pink-600">~(p ∧ q) ≡ ~p ∨ ~q</code> y <code className="bg-slate-100 px-1 rounded text-pink-600">~(p ∨ q) ≡ ~p ∧ ~q</code></li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeCourse === 'razonamiento_5to' && activeTab === 'mezclas' && (
+              <div className="space-y-6">
+                <div className="bg-teal-50 p-6 rounded-3xl border-2 border-teal-200 shadow-sm">
+                  <h4 className="font-black text-teal-900 text-2xl mb-3 flex items-center gap-2">🧪 Fracciones y Mezclas</h4>
+                  <p className="text-teal-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Proporciones en aleaciones, reducción a la unidad y mezclas de alcohol/agua.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-teal-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-teal-700 text-lg">Reducción a la Unidad</strong>
+                        <span className="text-2xl font-black text-teal-300">🚰</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Si un grifo llena un tanque en "a" hrs y otro lo vacía en "b" hrs:</p>
+                      <div className="bg-teal-50 p-2 rounded-lg text-center font-bold text-teal-700 border border-teal-100 font-mono">
+                        En 1 hora hacen: (1/a - 1/b)
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-teal-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-teal-700 text-lg">Extracciones Sucesivas</strong>
+                        <span className="text-2xl font-black text-teal-300">📉</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Si extraes 1/3 de lo que hay, te queda 2/3.</p>
+                      <div className="bg-teal-50 p-2 rounded-lg text-center font-bold text-teal-700 border border-teal-100">
+                        ¡Multiplica las fracciones de LO QUE QUEDA!
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-teal-100 shadow-sm hover:shadow-md transition-shadow md:col-span-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-teal-700 text-lg">Fórmula del Precio Medio (Pm)</strong>
+                        <span className="text-2xl font-black text-teal-300">⚖️</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Para hallar el precio medio o grado medio de una mezcla de cantidades (C) y precios (P):</p>
+                      <div className="bg-teal-50 p-2 rounded-lg text-center font-bold text-teal-700 border border-teal-100 font-mono text-lg">
+                        Pm = (P₁C₁ + P₂C₂ + ...) / (C₁ + C₂ + ...)
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeCourse === 'razonamiento_5to' && activeTab === 'financiera' && (
+              <div className="space-y-6">
+                <div className="bg-rose-50 p-6 rounded-3xl border-2 border-rose-200 shadow-sm">
+                  <h4 className="font-black text-rose-900 text-2xl mb-3 flex items-center gap-2">💰 Mate Financiera y Variaciones</h4>
+                  <p className="text-rose-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Interés simple, compuesto y variaciones porcentuales (descuentos o aumentos sucesivos).
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-rose-100 shadow-sm hover:shadow-md transition-shadow md:col-span-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-rose-700 text-lg">Interés Simple</strong>
+                        <span className="text-2xl font-black text-rose-300">📈</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Calcula el interés generado por un capital. ¡Recuerda homogeneizar la tasa y el tiempo!</p>
+                      <div className="bg-rose-50 p-2 rounded-lg text-center font-bold text-rose-700 border border-rose-100 font-mono text-lg">
+                        I = (C × r × t) / 100
+                      </div>
+                      <p className="text-slate-500 text-sm mt-2 text-center">Solo se divide entre 100 si el tiempo 't' está en AÑOS y 'r' es anual.</p>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-rose-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-rose-700 text-lg">Descuentos Sucesivos</strong>
+                        <span className="text-2xl font-black text-rose-300">🏷️</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">¡Los descuentos no se suman directamente!</p>
+                      <ul className="list-disc pl-5 text-slate-500 font-medium text-sm">
+                        <li>Si descuentan 20% y luego 10%, terminas pagando el 80% del 90%. <code className="font-bold text-rose-600">0.80 × 0.90 = 0.72</code></li>
+                      </ul>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-rose-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-rose-700 text-lg">Monto Final</strong>
+                        <span className="text-2xl font-black text-rose-300">💵</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">El dinero total que se retira al final.</p>
+                      <div className="bg-rose-50 p-2 rounded-lg text-center font-bold text-rose-700 border border-rose-100 font-mono">
+                        M = Capital + Interés
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TRIGONOMETRIA */}
+            {activeCourse === 'trigonometria' && activeTab === 'rt' && (
+              <div className="space-y-6">
+                <div className="bg-indigo-50 p-6 rounded-3xl border-2 border-indigo-200 shadow-sm">
+                  <h4 className="font-black text-indigo-900 text-2xl mb-3 flex items-center gap-2">📐 Razones Trigonométricas (RT)</h4>
+                  <p className="text-indigo-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Sen, Cos, Tan, Cot, Sec, Csc. Las bases fundamentales de cualquier triángulo rectángulo. ¡Apréndete SOH-CAH-TOA!
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-indigo-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-indigo-700 text-lg">Recíprocas (Inversas)</strong>
+                        <span className="text-2xl font-black text-indigo-300">🔄</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">El producto de una razón y su recíproca es 1.</p>
+                      <ul className="list-disc pl-5 text-slate-500 font-mono font-medium">
+                        <li>sen(x) × csc(x) = 1</li>
+                        <li>cos(x) × sec(x) = 1</li>
+                        <li>tan(x) × cot(x) = 1</li>
+                      </ul>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-indigo-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-indigo-700 text-lg">Corrazones</strong>
+                        <span className="text-2xl font-black text-indigo-300">🤝</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Si los ángulos son complementarios (α + β = 90°):</p>
+                      <ul className="list-disc pl-5 text-slate-500 font-mono font-medium">
+                        <li>sen(α) = cos(β)</li>
+                        <li>tan(α) = cot(β)</li>
+                        <li>sec(α) = csc(β)</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeCourse === 'trigonometria' && activeTab === 'triangulos' && (
+              <div className="space-y-6">
+                <div className="bg-teal-50 p-6 rounded-3xl border-2 border-teal-200 shadow-sm">
+                  <h4 className="font-black text-teal-900 text-2xl mb-3 flex items-center gap-2">📐 Triángulos Rectángulos Notables</h4>
+                  <p className="text-teal-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Debes saberte estos triángulos de memoria. Te ahorrarán el 90% del tiempo en el examen.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-teal-100 shadow-sm hover:shadow-md transition-shadow md:col-span-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-teal-700 text-lg">30° y 60°</strong>
+                        <span className="text-2xl font-black text-teal-300">🔺</span>
+                      </div>
+                      <div className="bg-teal-50 p-3 rounded-lg text-center text-teal-800 border border-teal-100 font-medium">
+                        Hipotenusa = <b>2k</b> | Opuesto a 30° = <b>k</b> | Opuesto a 60° = <b>k√3</b>
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-teal-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-teal-700 text-lg">45° y 45°</strong>
+                        <span className="text-2xl font-black text-teal-300">📐</span>
+                      </div>
+                      <div className="bg-teal-50 p-3 rounded-lg text-center text-teal-800 border border-teal-100 font-medium">
+                        Ambos catetos = <b>k</b> <br/> Hipotenusa = <b>k√2</b>
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-teal-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-teal-700 text-lg">37° y 53°</strong>
+                        <span className="text-2xl font-black text-teal-300">📏</span>
+                      </div>
+                      <div className="bg-teal-50 p-3 rounded-lg text-center text-teal-800 border border-teal-100 font-medium">
+                        Opuesto 37° = <b>3k</b> <br/> Opuesto 53° = <b>4k</b> <br/> Hipotenusa = <b>5k</b>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeCourse === 'trigonometria' && activeTab === 'verticales' && (
+              <div className="space-y-6">
+                <div className="bg-orange-50 p-6 rounded-3xl border-2 border-orange-200 shadow-sm">
+                  <h4 className="font-black text-orange-900 text-2xl mb-3 flex items-center gap-2">👀 Ángulos Verticales</h4>
+                  <p className="text-orange-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Problemas de visualización, faros, torres y edificios. Siempre haz un dibujo limpio primero.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-orange-100 shadow-sm hover:shadow-md transition-shadow md:col-span-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-orange-700 text-lg">Línea Horizontal</strong>
+                        <span className="text-2xl font-black text-orange-300">➖</span>
+                      </div>
+                      <p className="text-slate-600 mb-0">Es la línea de referencia que sale directamente de los ojos del observador, paralela al suelo. Todo parte desde aquí.</p>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-orange-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-orange-700 text-lg">Elevación (α)</strong>
+                        <span className="text-2xl font-black text-orange-300">↗️</span>
+                      </div>
+                      <p className="text-slate-600 mb-0">El ángulo formado HASTA ARRIBA entre la línea horizontal y la visual hacia el objeto.</p>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-orange-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-orange-700 text-lg">Depresión (β)</strong>
+                        <span className="text-2xl font-black text-orange-300">↘️</span>
+                      </div>
+                      <p className="text-slate-600 mb-0">El ángulo formado HACIA ABAJO. ¡Ojo! Por alternos internos, el ángulo de depresión es igual al de elevación desde abajo.</p>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-orange-200 shadow-sm hover:shadow-md transition-shadow md:col-span-2 bg-orange-100/50">
+                      <p className="text-orange-800 font-bold text-center">💡 Truco: La mayoría se resuelve usando la función Tangente = (Cat. Opuesto / Cat. Adyacente).</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeCourse === 'trigonometria' && activeTab === 'geo_ana' && (
+              <div className="space-y-6">
+                <div className="bg-cyan-50 p-6 rounded-3xl border-2 border-cyan-200 shadow-sm">
+                  <h4 className="font-black text-cyan-900 text-2xl mb-3 flex items-center gap-2">📍 Geometría Analítica</h4>
+                  <p className="text-cyan-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Puntos en el plano cartesiano (x, y). ¡Domina estas fórmulas y no habrá recta que te detenga!
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-cyan-100 shadow-sm hover:shadow-md transition-shadow md:col-span-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-cyan-700 text-lg">Distancia entre dos puntos A(x₁, y₁) y B(x₂, y₂)</strong>
+                        <span className="text-2xl font-black text-cyan-300">📏</span>
+                      </div>
+                      <div className="bg-cyan-50 p-3 rounded-lg text-center font-bold text-cyan-700 border border-cyan-100 font-mono text-lg">
+                        d = √[(x₂ - x₁)² + (y₂ - y₁)²]
+                      </div>
+                      <p className="text-slate-500 text-sm mt-2 text-center italic">¡Es básicamente el Teorema de Pitágoras!</p>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-cyan-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-cyan-700 text-lg">Punto Medio (M)</strong>
+                        <span className="text-2xl font-black text-cyan-300">🎯</span>
+                      </div>
+                      <div className="bg-cyan-50 p-2 rounded-lg text-center font-bold text-cyan-700 border border-cyan-100 font-mono">
+                        M = ( (x₁+x₂)/2 , (y₁+y₂)/2 )
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-cyan-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-cyan-700 text-lg">Pendiente (m)</strong>
+                        <span className="text-2xl font-black text-cyan-300">📈</span>
+                      </div>
+                      <div className="bg-cyan-50 p-2 rounded-lg text-center font-bold text-cyan-700 border border-cyan-100 font-mono">
+                        m = (y₂ - y₁) / (x₂ - x₁)
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeCourse === 'trigonometria' && activeTab === 'pos_norm' && (
+              <div className="space-y-6">
+                <div className="bg-pink-50 p-6 rounded-3xl border-2 border-pink-200 shadow-sm">
+                  <h4 className="font-black text-pink-900 text-2xl mb-3 flex items-center gap-2">🔄 Ángulos en Posición Normal</h4>
+                  <p className="text-pink-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Se acabó estar solo en el primer cuadrante. Ahora vamos a los 360° y más allá con el Radio Vector (r).
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-pink-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-pink-700 text-lg">Fórmulas Generales (x, y, r)</strong>
+                        <span className="text-2xl font-black text-pink-300">🧮</span>
+                      </div>
+                      <ul className="text-slate-600 font-mono space-y-1">
+                        <li><b>r</b> = √(x² + y²) <span className="text-xs text-slate-400 block">(r siempre es positivo +)</span></li>
+                        <li><b>sen(θ)</b> = y / r</li>
+                        <li><b>cos(θ)</b> = x / r</li>
+                        <li><b>tan(θ)</b> = y / x</li>
+                      </ul>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-pink-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-pink-700 text-lg">Signos por Cuadrante</strong>
+                        <span className="text-2xl font-black text-pink-300">➕</span>
+                      </div>
+                      <ul className="list-disc pl-5 text-slate-600 font-medium">
+                        <li><b>I Cuad:</b> ¡Todas Positivas! 😃</li>
+                        <li><b>II Cuad:</b> Solo Sen y Csc (+)</li>
+                        <li><b>III Cuad:</b> Solo Tan y Cot (+)</li>
+                        <li><b>IV Cuad:</b> Solo Cos y Sec (+)</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* RAZONAMIENTO */}
+            {activeCourse === 'razonamiento' && activeTab === 'figures' && (
+              <div className="space-y-6">
+                <div className="bg-indigo-50 p-6 rounded-3xl border-2 border-indigo-200 shadow-sm">
+                  <h4 className="font-black text-indigo-900 text-2xl mb-3 flex items-center gap-2">📐 Figuras Clave</h4>
+                  <p className="text-indigo-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Reconocimiento rápido de perímetros, áreas y secuencias geométricas.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-indigo-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-indigo-700 text-lg">Contar Figuras</strong>
+                        <span className="text-2xl font-black text-indigo-300">🔢</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Para contar triángulos o segmentos en línea, usa el método combinatorio:</p>
+                      <div className="bg-indigo-50 p-2 rounded-lg text-center font-bold text-indigo-700 border border-indigo-100 font-mono">
+                        n(n+1)/2
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-indigo-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-indigo-700 text-lg">Áreas Sombreadas</strong>
+                        <span className="text-2xl font-black text-indigo-300">⬛</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Generalmente se resuelven por RESTA de áreas conocidas:</p>
+                      <div className="bg-indigo-50 p-2 rounded-lg text-center font-bold text-indigo-700 border border-indigo-100">
+                        (Área Total) - (Área Blanca)
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-indigo-100 shadow-sm hover:shadow-md transition-shadow md:col-span-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-indigo-700 text-lg">Traslación de Áreas</strong>
+                        <span className="text-2xl font-black text-indigo-300">🧩</span>
+                      </div>
+                      <p className="text-slate-600 mb-0">A veces, si mueves un pedacito de la figura sombreable, ¡completa un cuadrado o círculo perfecto! Busca siempre la simetría antes de calcular fórmulas complejas.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeCourse === 'razonamiento' && activeTab === 'factors' && (
+              <div className="space-y-6">
+                <div className="bg-emerald-50 p-6 rounded-3xl border-2 border-emerald-200 shadow-sm">
+                  <h4 className="font-black text-emerald-900 text-2xl mb-3 flex items-center gap-2">🔢 Factores %</h4>
+                  <p className="text-emerald-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Técnicas de cálculo rápido de porcentajes y fracciones equivalentes.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm hover:shadow-md transition-shadow md:col-span-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-emerald-700 text-lg">Fracciones Notables</strong>
+                        <span className="text-2xl font-black text-emerald-300">🍰</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Transformar porcentajes a fracciones simplifica brutalmente los cálculos:</p>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        <div className="bg-emerald-50 p-2 rounded-lg text-center font-bold text-emerald-700 border border-emerald-100">50% = 1/2</div>
+                        <div className="bg-emerald-50 p-2 rounded-lg text-center font-bold text-emerald-700 border border-emerald-100">25% = 1/4</div>
+                        <div className="bg-emerald-50 p-2 rounded-lg text-center font-bold text-emerald-700 border border-emerald-100">20% = 1/5</div>
+                        <div className="bg-emerald-50 p-2 rounded-lg text-center font-bold text-emerald-700 border border-emerald-100">10% = 1/10</div>
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm hover:shadow-md transition-shadow md:col-span-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-emerald-700 text-lg">El truco del intercambio</strong>
+                        <span className="text-2xl font-black text-emerald-300">🔄</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">El A% de B es exactamente igual al B% de A.</p>
+                      <div className="bg-emerald-50 p-2 rounded-lg text-center font-bold text-emerald-700 border border-emerald-100">
+                        ¿Difícil calcular el 18% de 50? Calcula el 50% de 18 (que es la mitad, o sea 9).
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeCourse === 'razonamiento' && activeTab === '1d' && (
+              <div className="space-y-6">
+                <div className="bg-amber-50 p-6 rounded-3xl border-2 border-amber-200 shadow-sm">
+                  <h4 className="font-black text-amber-900 text-2xl mb-3 flex items-center gap-2">💡 Regla de 3 Simple</h4>
+                  <p className="text-amber-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Identifica si las magnitudes son directamente proporcionales (DP) o inversamente proporcionales (IP).
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-amber-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-amber-700 text-lg">Directamente Proporcional (DP)</strong>
+                        <span className="text-2xl font-black text-amber-300">📈</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Si una sube, la otra sube (ej: kilos de pan y precio).</p>
+                      <div className="bg-amber-50 p-2 rounded-lg text-center font-bold text-amber-700 border border-amber-100">
+                        Se multiplica en ASPA (X).
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-amber-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-amber-700 text-lg">Inversamente Proporcional (IP)</strong>
+                        <span className="text-2xl font-black text-amber-300">⚖️</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Si una sube, la otra baja (ej: obreros y tiempo).</p>
+                      <div className="bg-amber-50 p-2 rounded-lg text-center font-bold text-amber-700 border border-amber-100">
+                        Se multiplica RECTO (—).
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeCourse === 'razonamiento' && activeTab === '2d' && (
+              <div className="space-y-6">
+                <div className="bg-cyan-50 p-6 rounded-3xl border-2 border-cyan-200 shadow-sm">
+                  <h4 className="font-black text-cyan-900 text-2xl mb-3 flex items-center gap-2">📐 Regla de 3 Compuesta</h4>
+                  <p className="text-cyan-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Cuando hay más de dos magnitudes, el método universal de los obreros te salvará.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-cyan-100 shadow-sm hover:shadow-md transition-shadow md:col-span-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-cyan-700 text-lg">Fórmula Universal TEN</strong>
+                        <span className="text-2xl font-black text-cyan-300">👷‍♂️</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Esta fracción siempre se mantiene constante entre dos situaciones:</p>
+                      <div className="bg-cyan-50 p-3 rounded-lg text-center font-bold text-cyan-700 border border-cyan-100 font-mono text-lg">
+                        (Obreros × Días × Eficiencia) / (Obra × Dificultad) = Constante
+                      </div>
+                      <ul className="list-disc pl-5 mt-3 text-slate-500 font-medium text-sm">
+                        <li><b>Arriba:</b> Todo lo que hace la obra (personas, tiempo, rendimiento).</li>
+                        <li><b>Abajo:</b> Todo lo relacionado al trabajo en sí (metros construidos, dureza del terreno).</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* GEOMETRIA 5TO */}
+            {activeCourse === 'geometria_5to' && activeTab === 'metrica' && (
+              <div className="space-y-6">
+                <div className="bg-fuchsia-50 p-6 rounded-3xl border-2 border-fuchsia-200 shadow-sm">
+                  <h4 className="font-black text-fuchsia-900 text-2xl mb-3 flex items-center gap-2">📏 Relaciones Métricas</h4>
+                  <p className="text-fuchsia-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Teoremas en triángulos rectángulos y oblicuángulos, relaciones en la circunferencia (cuerdas, tangentes, secantes).
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-fuchsia-100 shadow-sm hover:shadow-md transition-shadow md:col-span-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-fuchsia-700 text-lg">En el Triángulo Rectángulo</strong>
+                        <span className="text-2xl font-black text-fuchsia-300">📐</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Al trazar la altura (h) relativa a la hipotenusa (c) que divide a esta en m y n:</p>
+                      <ul className="list-disc pl-5 text-slate-500 font-medium text-sm grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+                        <li><code className="text-fuchsia-600 font-bold">h² = m × n</code></li>
+                        <li><code className="text-fuchsia-600 font-bold">a² = c × n</code> (y <code className="text-fuchsia-600 font-bold">b² = c × m</code>)</li>
+                        <li><code className="text-fuchsia-600 font-bold">a × b = c × h</code></li>
+                        <li><code className="text-fuchsia-600 font-bold">1/h² = 1/a² + 1/b²</code></li>
+                      </ul>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-fuchsia-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-fuchsia-700 text-lg">Teorema de las Cuerdas</strong>
+                        <span className="text-2xl font-black text-fuchsia-300">✖️</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Dos cuerdas que se cruzan en un punto interior de la circunferencia:</p>
+                      <div className="bg-fuchsia-50 p-2 rounded-lg text-center font-bold text-fuchsia-700 border border-fuchsia-100 font-mono">
+                        a × b = c × d
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-fuchsia-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-fuchsia-700 text-lg">Teorema de la Tangente</strong>
+                        <span className="text-2xl font-black text-fuchsia-300">↗️</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Una tangente (T) y una secante (Externa E, Total C):</p>
+                      <div className="bg-fuchsia-50 p-2 rounded-lg text-center font-bold text-fuchsia-700 border border-fuchsia-100 font-mono">
+                        T² = C × E
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeCourse === 'geometria_5to' && activeTab === 'areas' && (
+              <div className="space-y-6">
+                <div className="bg-pink-50 p-6 rounded-3xl border-2 border-pink-200 shadow-sm">
+                  <h4 className="font-black text-pink-900 text-2xl mb-3 flex items-center gap-2">📐 Áreas de Regiones Planas</h4>
+                  <p className="text-pink-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Cálculo de áreas de regiones triangulares, cuadrangulares y relación de áreas.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-pink-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-pink-700 text-lg">Fórmula de Herón</strong>
+                        <span className="text-2xl font-black text-pink-300">🔺</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Para hallar el área de un triángulo conociendo sus 3 lados (Semiperímetro p):</p>
+                      <div className="bg-pink-50 p-2 rounded-lg text-center font-bold text-pink-700 border border-pink-100 font-mono">
+                        A = √[p(p-a)(p-b)(p-c)]
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-pink-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-pink-700 text-lg">Relación de Áreas</strong>
+                        <span className="text-2xl font-black text-pink-300">➗</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Si trazas una ceviana, las áreas generadas son proporcionales a las bases.</p>
+                      <div className="bg-pink-50 p-2 rounded-lg text-center font-bold text-pink-700 border border-pink-100">
+                        Una Mediana divide al triángulo en 2 áreas iguales.
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-pink-100 shadow-sm hover:shadow-md transition-shadow md:col-span-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-pink-700 text-lg">Cuadriláteros Especiales</strong>
+                        <span className="text-2xl font-black text-pink-300">🔲</span>
+                      </div>
+                      <ul className="list-disc pl-5 text-slate-500 font-medium text-sm grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <li><b>Rombo:</b> <code className="text-pink-600">(D × d) / 2</code></li>
+                        <li><b>Trapecio:</b> <code className="text-pink-600">((B + b) / 2) × h</code></li>
+                        <li><b>Paralelogramo:</b> <code className="text-pink-600">Base × h</code></li>
+                        <li><b>Cuadrilátero inscrito:</b> Usar Brahmagupta (similar a Herón).</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeCourse === 'geometria_5to' && activeTab === 'circulos' && (
+              <div className="space-y-6">
+                <div className="bg-rose-50 p-6 rounded-3xl border-2 border-rose-200 shadow-sm">
+                  <h4 className="font-black text-rose-900 text-2xl mb-3 flex items-center gap-2">⭕ Superficies Circulares</h4>
+                  <p className="text-rose-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Cálculo del círculo, sector circular, corona y trapecio circular.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-rose-100 shadow-sm hover:shadow-md transition-shadow md:col-span-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-rose-700 text-lg">Área del Sector Circular</strong>
+                        <span className="text-2xl font-black text-rose-300">🍕</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Si el ángulo central 'θ' está en RADIANES y 'L' es la longitud de arco:</p>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        <div className="bg-rose-50 p-2 rounded-lg text-center font-bold text-rose-700 border border-rose-100 font-mono">A = (θ × R²) / 2</div>
+                        <div className="bg-rose-50 p-2 rounded-lg text-center font-bold text-rose-700 border border-rose-100 font-mono">A = (L × R) / 2</div>
+                        <div className="bg-rose-50 p-2 rounded-lg text-center font-bold text-rose-700 border border-rose-100 font-mono">A = L² / (2θ)</div>
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-rose-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-rose-700 text-lg">Corona Circular</strong>
+                        <span className="text-2xl font-black text-rose-300">🍩</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">El área entre dos círculos concéntricos (Radio Mayor R, Radio menor r):</p>
+                      <div className="bg-rose-50 p-2 rounded-lg text-center font-bold text-rose-700 border border-rose-100 font-mono">
+                        A = π(R² - r²)
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeCourse === 'geometria_5to' && activeTab === 'espacio' && (
+              <div className="space-y-6">
+                <div className="bg-indigo-50 p-6 rounded-3xl border-2 border-indigo-200 shadow-sm">
+                  <h4 className="font-black text-indigo-900 text-2xl mb-3 flex items-center gap-2">🧊 Geometría del Espacio</h4>
+                  <p className="text-indigo-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Rectas y planos en el espacio. Ángulos diedros y triedros. Teorema de las tres perpendiculares.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-indigo-100 shadow-sm hover:shadow-md transition-shadow md:col-span-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-indigo-700 text-lg">Teorema de las Tres Perpendiculares</strong>
+                        <span className="text-2xl font-black text-indigo-300">📏</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">El teorema maestro para hallar distancias en 3D. Consiste en 3 pasos:</p>
+                      <ul className="list-disc pl-5 text-slate-500 font-medium text-sm space-y-1">
+                        <li><b>Primera:</b> Trazar una perpendicular del espacio al plano (Pie de la altura).</li>
+                        <li><b>Segunda:</b> Desde el pie, trazar una perpendicular a una recta del plano.</li>
+                        <li><b>Tercera:</b> Si unes el punto del espacio con la intersección de la segunda, ¡esa nueva línea también es perpendicular a la recta del plano!</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeCourse === 'geometria_5to' && activeTab === 'solidos' && (
+              <div className="space-y-6">
+                <div className="bg-purple-50 p-6 rounded-3xl border-2 border-purple-200 shadow-sm">
+                  <h4 className="font-black text-purple-900 text-2xl mb-3 flex items-center gap-2">🎲 Sólidos y Poliedros</h4>
+                  <p className="text-purple-800 text-sm md:text-base font-semibold mb-4 leading-relaxed">
+                    Prismas, cilindros, pirámides, conos y esferas.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base mb-4">
+                    <div className="bg-white p-5 rounded-2xl border border-purple-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-purple-700 text-lg">Cuerpos con "Punta" (Pirámide y Cono)</strong>
+                        <span className="text-2xl font-black text-purple-300">⛺</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Siempre llevan un "sobre 3" en su volumen:</p>
+                      <div className="bg-purple-50 p-2 rounded-lg text-center font-bold text-purple-700 border border-purple-100 font-mono">
+                        V = (Área_Base × h) / 3
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-purple-100 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-purple-700 text-lg">Cuerpos Rectos (Prisma y Cilindro)</strong>
+                        <span className="text-2xl font-black text-purple-300">🛢️</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Su volumen es directo, base por altura:</p>
+                      <div className="bg-purple-50 p-2 rounded-lg text-center font-bold text-purple-700 border border-purple-100 font-mono">
+                        V = Área_Base × h
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 rounded-2xl border border-purple-100 shadow-sm hover:shadow-md transition-shadow md:col-span-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <strong className="text-purple-700 text-lg">Teorema de Euler para Poliedros</strong>
+                        <span className="text-2xl font-black text-purple-300">🧊</span>
+                      </div>
+                      <p className="text-slate-600 mb-2">Para todo poliedro convexo se cumple la relación de Caras (C), Vértices (V) y Aristas (A):</p>
+                      <div className="bg-purple-50 p-2 rounded-lg text-center font-bold text-purple-700 border border-purple-100 font-mono text-lg">
+                        C + V = A + 2
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+
+      {/* Footer Navigation */}
+      <div className="w-full flex justify-between items-center pt-4 md:pt-6 border-t-2 border-indigo-100 shrink-0">
+        <Button onClick={handlePrev} disabled={currentIndex === 0} color="slate" className="!py-2 md:!py-3 !px-4 md:!px-6">
+          <Icon name="arrow_left" size={20} className="md:mr-1" />
+          <span className="hidden md:inline">Anterior</span>
+        </Button>
+        <span className="text-slate-400 font-bold text-[10px] md:text-sm uppercase tracking-widest bg-slate-100 px-3 md:px-4 py-1.5 md:py-2 rounded-full">
+          {currentIndex + 1} / {tabOrder.length}
+        </span>
+        <Button onClick={handleNext} color={currentIndex === tabOrder.length - 1 ? 'green' : 'blue'} className="!py-2 md:!py-3 !px-4 md:!px-6">
+          <span className="hidden md:inline">{currentIndex === tabOrder.length - 1 ? 'Entendido' : 'Siguiente'}</span>
+          {currentIndex === tabOrder.length - 1 ? <Icon name="check" size={20} className="md:ml-1" /> : <Icon name="arrow_right" size={20} className="md:ml-1" />}
+        </Button>
+      </div>
+    </Card>
+  );
+
+  return content;
+};
+"""
+
+with open("src/components/DictLabModal.tsx", "w") as f:
+    f.write(code)
+

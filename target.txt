@@ -1,0 +1,146 @@
+        </div>
+      </header>               <span className="text-lg md:text-xl">📊</span>
+                <span className="font-black text-slate-700 text-[8px] md:text-[10px] uppercase tracking-widest hidden md:inline">Stats</span>
+              </div>
+            </BentoTile>
+        </div>
+      </header>
+
+      {/* Main Grid Workspace */}
+      <main className="max-w-7xl w-full mx-auto flex flex-col gap-3 relative z-10 flex-1 min-h-0" style={{ animationDelay: '0.1s' }}>
+
+        {/* 2-column layout for Question and Answer */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 w-full flex-1">
+          {/* Active Problem Solver Canvas (Left) */}
+          <div className="bg-[#FBFCFB] rounded-[1.5rem] border-[3px] border-[#E8F3EB] p-4 md:p-6 shadow-sm flex flex-col h-full relative">
+            <div className="flex justify-center items-center mb-4 gap-2">
+              {currentProblem.data.isGolden && (
+                <span className="animate-pulse bg-gradient-to-r from-yellow-300 to-amber-500 text-transparent bg-clip-text font-black text-xl filter drop-shadow-sm">
+                  ✨
+                </span>
+              )}
+              <span className="px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-[#E8F0FE] text-[#3D63DD]">
+                Desafío #{progress.level}
+              </span>
+            </div>
+
+            <div className="flex-1 flex flex-col items-center justify-center text-center">
+              <p className="font-bold text-sm md:text-base leading-snug text-slate-800 px-2 md:px-4 mb-2">
+                {currentProblem.data.intro}
+              </p>
+            </div>
+
+            <div className="w-full mt-auto">
+              <BentoTile
+                onClick={() => { playClickSound(); setShowDictLab(true); }}
+                className="border-blue-200 bg-blue-50/70 py-0.5"
+                emojis={['📖']}
+              >
+                <div className="flex items-center justify-center gap-2 p-1">
+                  <span className="text-xl">📖</span>
+                  <span className="font-black text-blue-700 text-[10px] md:text-xs uppercase tracking-widest">Abrir Códice de Fórmulas</span>
+                </div>
+              </BentoTile>
+            </div>
+          </div>
+
+          {/* Answer Form (Right) */}
+          <div className="bg-white rounded-[1.5rem] border-[3px] border-slate-100 p-4 shadow-sm flex flex-col h-full relative">
+            
+            <div className="flex justify-center items-center gap-2 mb-2">
+              <span className="text-lg">🔎</span>
+              <h2 className="text-sm md:text-base font-black text-slate-800 tracking-tight">Terminal de Cálculo</h2>
+            </div>
+
+            <form onSubmit={checkAnswerSubmit} className="flex-1 flex flex-col items-center justify-center w-full">
+              
+              <div className="flex-1 flex flex-col items-center justify-center mb-2 w-full">
+                <span className="text-[28px] drop-shadow-md mb-1 animate-float">✏️</span>
+                <h4 className="text-slate-600 font-bold mb-1 text-[11px]">Ingresa tu respuesta (sólo el número):</h4>
+                
+                <div className="w-full max-w-sm relative">
+                  <input 
+                    type="text" 
+                    value={inputAnswer} 
+                    onChange={(e) => {
+                      setInputAnswer(e.target.value);
+                      if (previewTheme) setPreviewTheme(null);
+                    }}
+                    placeholder="Ej: 20 o 5" 
+                    disabled={currentProblem.solved}
+                    className={`w-full px-4 py-2 rounded-xl border-[3px] focus:outline-none font-black text-center text-[20px] text-slate-800 placeholder:text-slate-300 bg-white shadow-[0_4px_20px_rgb(0,0,0,0.04)] transition-all ${isShaking ? 'animate-shake border-rose-400 ring-4 ring-rose-100' : 'border-slate-100 focus:border-blue-400 focus:ring-4 focus:ring-blue-100'}`}
+                  />
+                </div>
+
+                {/* Answer Feedbacks */}
+                {answerState.type !== 'idle' && (
+                  <div className={`mt-3 p-3 rounded-xl border-2 w-full max-w-sm animate-pop font-black text-xs text-center shadow-md ${answerState.type === 'correct' ? 'bg-emerald-50 border-emerald-300 text-emerald-800' : 'bg-rose-50 border-rose-300 text-rose-800'}`}>
+                    {answerState.text}
+                  </div>
+                )}
+                
+                {currentProblem.solved && (
+                  <Button 
+                    type="button"
+                    onClick={loadNextProblem} 
+                    color="green" 
+                    className="w-full max-w-sm mt-3 py-3 text-base font-black uppercase tracking-widest animate-bounce"
+                  >
+                    ➡️ Siguiente desafío
+                  </Button>
+                )}
+              </div>
+
+              {/* Buttons Row */}
+              <div className="flex items-stretch gap-2 w-full max-w-md h-[56px] pt-1">
+                 <button 
+                   type="button"
+                   disabled={currentProblem.solved} 
+                   className="flex-1 flex flex-col items-center justify-center bg-yellow-400 hover:bg-yellow-300 border-yellow-600 border-2 md:border-x-[3px] md:border-t-[3px] md:border-b-[6px] active:border-b-2 active:translate-y-[2px] md:active:border-b-[3px] md:active:translate-y-[3px] rounded-[1.5rem] text-yellow-900 font-black text-[11px] uppercase tracking-wider shadow-sm transition-all disabled:opacity-50"
+                   title="Pedir pista"
+                 >
+                   <div className="flex items-center gap-1 mb-0.5 mt-0.5">
+                     <span className="text-base leading-none">💡</span>
+                     <span className="leading-none">Pista</span>
+                   </div>
+                   <span className="opacity-80 text-[10px]">(-30 🪙)</span>
+                 </button>
+
+                 <button 
+                   type="button"
+                   onClick={skipProblem} 
+                   disabled={currentProblem.solved} 
+                   className="flex-1 flex flex-col items-center justify-center bg-blue-500 hover:bg-blue-400 border-blue-700 border-2 md:border-x-[3px] md:border-t-[3px] md:border-b-[6px] active:border-b-2 active:translate-y-[2px] md:active:border-b-[3px] md:active:translate-y-[3px] rounded-[1.5rem] text-white font-black text-[11px] uppercase tracking-wider shadow-sm transition-all disabled:opacity-50"
+                   title="Saltar problema"
+                 >
+                   <div className="flex items-center gap-1 mb-0.5 mt-0.5">
+                     <span className="text-base leading-none">⏭️</span>
+                     <span className="leading-none">Saltar</span>
+                   </div>
+                   <span className="opacity-80 text-[10px]">(-{marketEvent?.effect === 'cheap_skips' ? Math.round(((equipedPet || PET_BUFFS[0]).buffType === 'skip_discount' ? Math.max(0, 60 - (equipedPet || PET_BUFFS[0]).value) : 60) / 2) : ((equipedPet || PET_BUFFS[0]).buffType === 'skip_discount' ? Math.max(0, 60 - (equipedPet || PET_BUFFS[0]).value) : 60)} 🪙)</span>
+                 </button>
+                 
+                 <button 
+                   type="submit"
+                   disabled={currentProblem.solved || !inputAnswer.trim()} 
+                   className="flex-[1.5] bg-emerald-500 hover:bg-emerald-400 border-emerald-700 border-2 md:border-x-[3px] md:border-t-[3px] md:border-b-[6px] active:border-b-2 active:translate-y-[2px] md:active:border-b-[3px] md:active:translate-y-[3px] rounded-[1.5rem] text-white font-black text-[16px] md:text-[17px] tracking-widest uppercase shadow-sm transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                 >
+                   ENVIAR ☑️
+                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+      </main>
+      </PageReveal>
+      )}
+      </AnimatePresence>
+
+      {/* Mobile Bottom Navigation */}
+      {viewMode !== 'exercise' && (
+        <motion.div 
+          initial={{ y: 100, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.5, delay: 3.0, ease: "easeOut" }}
+          className="nav-sidebar lg:hidden landscape:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t-2 border-slate-200 p-2 z-[100] flex justify-around items-center pb-safe"
