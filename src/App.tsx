@@ -1,6 +1,6 @@
 import ReactDOM from 'react-dom';
 import React, { useState, useEffect, useRef } from 'react';
-import { signInWithPopup, User as FirebaseUser } from 'firebase/auth';
+import { signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
 import { auth, googleAuthProvider } from './lib/firebase.ts';
 import { motion, AnimatePresence, usePresence, useMotionValue, useMotionTemplate, animate } from 'motion/react';
 import { ProblemData, CurrentProblem, AlbumState, Stats, ShopItem, MarketEvent, PetBuff } from './types';
@@ -327,6 +327,8 @@ const handleInitialSetupComplete = async (name: string, avatar: string) => {
     if (user) {
       const newUser = { ...user, name, avatar, setupCompleted: true };
       setUser(newUser);
+      setShowWelcomeBonus(true);
+      setTutorialStep(1);
       if (firebaseUser) {
         try {
           const token = await firebaseUser.getIdToken();
@@ -1273,6 +1275,24 @@ const handleInitialSetupComplete = async (name: string, avatar: string) => {
     }
   };
 
+  // Logs out of Firebase and wipes local game-state cache so the next
+  // student on a shared computer never sees the previous account's data.
+  const handleLogout = async () => {
+    playClickSound();
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error(error);
+    }
+    [
+      'fin_user', 'fin_infinite_progress', 'fin_albums_state', 'fin_unplaced_pieces',
+      'fin_current_problem', 'fin_equiped_pet', 'fin_purchased_pets', 'fin_purchased_themes',
+      'fin_stats', 'fin_mistakes', 'fin_streak', 'fin_supernova', 'fin_shields',
+      'fin_double', 'fin_coins_spent', 'fin_skips_used', 'fin_tutorial_step', 'fin_theme',
+    ].forEach(key => localStorage.removeItem(key));
+    window.location.reload();
+  };
+
   if (authLoading) {
     return <div className="min-h-screen flex items-center justify-center font-bold">Cargando...</div>;
   }
@@ -1956,7 +1976,7 @@ const handleInitialSetupComplete = async (name: string, avatar: string) => {
                     coinsSpent={coinsSpent} 
                     skipsUsed={skipsUsed} 
                     onReplayTutorial={() => { playClickSound(); setTutorialStep(1); }}
-                    onLogout={() => { playClickSound(); setUser(null); }}
+                    onLogout={handleLogout}
                   />
                 </div>
               </TabTransition>)}
@@ -2447,7 +2467,7 @@ const handleInitialSetupComplete = async (name: string, avatar: string) => {
           skipsUsed={skipsUsed} 
           onClose={() => { playClickSound(); setShowProfile(false); }} 
           onReplayTutorial={() => { playClickSound(); setTutorialStep(1); setShowProfile(false); }}
-          onLogout={() => { playClickSound(); setUser(null); setShowProfile(false); }}
+          onLogout={handleLogout}
         />
       )}
 
