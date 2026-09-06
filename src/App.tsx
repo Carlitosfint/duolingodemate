@@ -1,7 +1,5 @@
 import ReactDOM from 'react-dom';
 import React, { useState, useEffect, useRef } from 'react';
-import { signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
-import { auth, googleAuthProvider } from './lib/firebase.ts';
 import { motion, AnimatePresence, usePresence, useMotionValue, useMotionTemplate, animate } from 'motion/react';
 import { ProblemData, CurrentProblem, AlbumState, Stats, ShopItem, MarketEvent, PetBuff } from './types';
 import { roulettePrizes, themes, initialAlbums, PET_BUFFS, MARKET_EVENTS, SHOP_BANNERS, TROPHIES, PROMO_CODES_MAP } from './data';
@@ -329,21 +327,6 @@ const handleInitialSetupComplete = async (name: string, avatar: string) => {
       setUser(newUser);
       setShowWelcomeBonus(true);
       setTutorialStep(1);
-      if (firebaseUser) {
-        try {
-          const token = await firebaseUser.getIdToken();
-          await fetch('/api/user/sync', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`
-            },
-            body: JSON.stringify(newUser)
-          });
-        } catch (e) {
-          console.error(e);
-        }
-      }
     }
   };
 
@@ -358,52 +341,11 @@ const handleInitialSetupComplete = async (name: string, avatar: string) => {
   }, [infiniteProgress]);
 
   
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-
   const [user, setUser] = useState<UserState | null>(() => {
     const saved = localStorage.getItem('fin_user');
-    return saved ? JSON.parse(saved) : null;
+    if (saved) return JSON.parse(saved);
+    return { name: 'Estudiante', avatar: 'fox', coins: 0, tickets: 0, progress: 0, setupCompleted: false };
   });
-
-  useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(async (u) => {
-      if (u) {
-        setFirebaseUser(u);
-        const token = await u.getIdToken();
-        try {
-          const res = await fetch('/api/user', {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const newUserState = {
-               name: data.name || u.displayName || 'Estudiante',
-               avatar: data.avatar || 'fox',
-               coins: data.coins || 0,
-               tickets: data.tickets || 0,
-               progress: data.progress || 0,
-               role: data.role || 'student',
-               setupCompleted: data.setupCompleted || false,
-               courseProgress: data.courseProgress || {},
-            };
-            setUser(newUserState);
-            if (data.infiniteProgress) setInfiniteProgress(data.infiniteProgress);
-            if (data.stats) setStats(data.stats);
-            if (data.albums) setAlbumsState(data.albums);
-          }
-        } catch (error) {
-          console.error(error);
-        }
-      } else {
-        setFirebaseUser(null);
-        setUser(null);
-      }
-      setAuthLoading(false);
-    });
-    return unsubscribe;
-  }, []);
-
 
 
   const [loginName, setLoginName] = useState("");
@@ -569,28 +511,6 @@ const handleInitialSetupComplete = async (name: string, avatar: string) => {
   useEffect(() => {
     if (user) {
       localStorage.setItem('fin_user', JSON.stringify(user));
-      if (firebaseUser) {
-        // debounce sync
-        const timeout = setTimeout(async () => {
-          try {
-            const token = await firebaseUser.getIdToken();
-            await fetch('/api/user/sync', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`
-              },
-              body: JSON.stringify({
-                 ...user,
-                 infiniteProgress,
-                 stats,
-                 albums: albumsState
-              })
-            });
-          } catch(e) {}
-        }, 1000);
-        return () => clearTimeout(timeout);
-      }
     }
   }, [user, infiniteProgress, stats, albumsState]);
 
@@ -1265,25 +1185,10 @@ const handleInitialSetupComplete = async (name: string, avatar: string) => {
     return "¡Desafío Geométrico!";
   };
 
-  // Render Login View if not authenticated
-  
-  const handleGoogleLogin = async () => {
-    try {
-      await signInWithPopup(auth, googleAuthProvider);
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
-  // Logs out of Firebase and wipes local game-state cache so the next
-  // student on a shared computer never sees the previous account's data.
+  // Wipes local game-state cache so the next student on a shared
+  // computer never sees the previous student's progress.
   const handleLogout = async () => {
     playClickSound();
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.error(error);
-    }
     [
       'fin_user', 'fin_infinite_progress', 'fin_albums_state', 'fin_unplaced_pieces',
       'fin_current_problem', 'fin_equiped_pet', 'fin_purchased_pets', 'fin_purchased_themes',
@@ -1292,35 +1197,6 @@ const handleInitialSetupComplete = async (name: string, avatar: string) => {
     ].forEach(key => localStorage.removeItem(key));
     window.location.reload();
   };
-
-  if (authLoading) {
-    return <div className="min-h-screen flex items-center justify-center font-bold">Cargando...</div>;
-  }
-
-  if (!firebaseUser || !user) {
-    return (
-      <div className="min-h-screen w-full bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden select-none font-sans">
-        <FloatingMathBackground />
-        
-        <Card className="w-full max-w-lg border-b-[8px] border-slate-300">
-          <div className="absolute top-0 inset-x-0 h-3 bg-gradient-to-r from-blue-500 via-teal-500 to-amber-500"></div>
-          
-          <div className="text-6xl mb-4 filter drop-shadow-md"><Icon name="target" size={18} className="inline-block" /></div>
-          <h1 className="text-3xl md:text-4xl font-black text-slate-800 tracking-tight leading-none">
-            Ángeles de Jesús
-          </h1>
-          <p className="text-slate-400 font-bold text-xs uppercase tracking-widest mt-2 mb-8">
-            Plataforma de Desafíos Matemáticos
-          </p>
-
-          <Button type="button" onClick={handleGoogleLogin} className="w-full py-4 text-base font-black flex items-center justify-center gap-3">
-             <Icon name="zap" size={20} />
-             Iniciar sesión con Google
-          </Button>
-        </Card>
-      </div>
-    );
-  }
 
   const claimChallenge = (challenge: any) => {
     if (claimedChallenges.includes(challenge.id)) return;
