@@ -200,9 +200,30 @@ export const playEpicRevealSound = () => {
 let activeOscillators: { osc: OscillatorNode; gain: GainNode }[] = [];
 let musicIntervalId: any = null;
 let currentMusicTheme: string | null = null;
+export let isMusicEnabled = false;
+
+export const setMusicEnabled = (enabled: boolean) => {
+  isMusicEnabled = enabled;
+  if (!enabled) {
+    if (musicIntervalId) {
+      clearInterval(musicIntervalId);
+      musicIntervalId = null;
+    }
+    activeOscillators.forEach(({ osc, gain }) => {
+      try {
+        osc.stop();
+        osc.disconnect();
+        gain.disconnect();
+      } catch (e) {}
+    });
+    activeOscillators = [];
+    currentMusicTheme = null;
+  }
+};
 
 export const playThemeAmbientMusic = (themeId: string) => {
   try {
+    if (!isMusicEnabled) return;
     const ctx = getAudioCtx();
     if (!ctx) return;
 

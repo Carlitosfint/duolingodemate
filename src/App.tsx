@@ -17,11 +17,15 @@ import {
   playThemeAmbientMusic,
   playTransitionSound,
   playRevealSound,
+  setMusicEnabled,
+  isMusicEnabled,
 } from './utils/audio';
 import { generateMathProblem } from './utils/math';
 import { useAnimatedNumber } from './utils/animated';
 import { Button, Card, BentoTile, FloatingMathBackground } from './components/UI';
 import { ConfettiOverlay } from './components/ConfettiOverlay';
+import { AudioToggle } from './components/AudioToggle';
+import { ColegioLogin } from './components/ColegioLogin';
 
 import { ProgressMap } from './components/ProgressMap';
 import { InitialSetup } from './components/InitialSetup';
@@ -268,15 +272,19 @@ export const PageReveal: React.FC<{ children: React.ReactNode, className?: strin
 };
 
 
-const CourseSelector = ({ activeCourse, setActiveCourse }: { activeCourse: string, setActiveCourse: (course: any) => void }) => {
+const CourseSelector = ({ activeCourse, setActiveCourse, user }: { activeCourse: string, setActiveCourse: (course: any) => void, user: any }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const courses = [
-    { id: 'razonamiento', name: 'RM Básico', icon: '🧠', color: 'text-blue-600', bg: 'bg-blue-100' },
-    { id: 'razonamiento_5to', name: 'RM 5to', icon: '🔥', color: 'text-emerald-600', bg: 'bg-emerald-100' },
-    { id: 'trigonometria', name: 'Trigonom.', icon: '📐', color: 'text-indigo-600', bg: 'bg-indigo-100' },
-    { id: 'geometria_5to', name: 'Geo 5to', icon: '🧊', color: 'text-rose-600', bg: 'bg-rose-100' },
+  const allCourses = [
+    { id: 'razonamiento', name: 'RM Básico', icon: '🧠', color: 'text-blue-600', bg: 'bg-blue-100', allowedGrades: ['3ro'] },
+    { id: 'razonamiento_5to', name: 'RM 5to', icon: '🔥', color: 'text-emerald-600', bg: 'bg-emerald-100', allowedGrades: ['4to', '5to'] },
+    { id: 'trigonometria', name: 'Trigonom.', icon: '📐', color: 'text-indigo-600', bg: 'bg-indigo-100', allowedGrades: ['4to', '5to'] },
+    { id: 'geometria_5to', name: 'Geo 5to', icon: '🧊', color: 'text-rose-600', bg: 'bg-rose-100', allowedGrades: ['5to'] },
   ];
   
+  const courses = user?.role === 'admin' || user?.role === 'teacher' 
+    ? allCourses 
+    : allCourses.filter(c => c.allowedGrades.includes(user?.grade || '3ro'));
+    
   const active = courses.find(c => c.id === activeCourse) || courses[0];
 
   return (
@@ -321,9 +329,9 @@ export default function App() {
     return u?.progress || 0;
   };
 
-const handleInitialSetupComplete = async (name: string, avatar: string) => {
+  const handleInitialSetupComplete = async (data: { name: string; avatar: string; role: 'student' | 'teacher'; grade?: '3ro' | '4to' | '5to' }) => {
     if (user) {
-      const newUser = { ...user, name, avatar, setupCompleted: true };
+      const newUser = { ...user, ...data, setupCompleted: true };
       setUser(newUser);
       setShowWelcomeBonus(true);
       setTutorialStep(1);
@@ -344,7 +352,7 @@ const handleInitialSetupComplete = async (name: string, avatar: string) => {
   const [user, setUser] = useState<UserState | null>(() => {
     const saved = localStorage.getItem('fin_user');
     if (saved) return JSON.parse(saved);
-    return { name: 'Estudiante', avatar: 'fox', coins: 0, tickets: 0, progress: 0, setupCompleted: false };
+    return null;
   });
 
 
@@ -448,7 +456,25 @@ const handleInitialSetupComplete = async (name: string, avatar: string) => {
   const [viewMode, setViewMode] = useState<'map' | 'practice' | 'infinite_map' | 'exercise' | 'codice' | 'album' | 'shop' | 'mistakes' | 'profile' | 'teacher' | 'teacher_dash'>('map');
 
     const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
-  const [activeCourse, setActiveCourse] = useState<'razonamiento' | 'trigonometria' | 'razonamiento_5to' | 'geometria_5to'>('razonamiento');
+  const [selectedCourse, setSelectedCourse] = useState<'razonamiento' | 'trigonometria' | 'razonamiento_5to' | 'geometria_5to' | null>(null);
+  
+  // Derivar el curso activo basándonos en el grado
+  const allCoursesData = [
+    { id: 'razonamiento', allowedGrades: ['3ro'] },
+    { id: 'razonamiento_5to', allowedGrades: ['4to', '5to'] },
+    { id: 'trigonometria', allowedGrades: ['4to', '5to'] },
+    { id: 'geometria_5to', allowedGrades: ['5to'] },
+  ];
+  
+  const availableCourses = user?.role === 'admin' || user?.role === 'teacher' 
+    ? allCoursesData.map(c => c.id)
+    : allCoursesData.filter(c => c.allowedGrades.includes(user?.grade || '3ro')).map(c => c.id);
+    
+  const activeCourse = (selectedCourse && availableCourses.includes(selectedCourse)) 
+    ? selectedCourse 
+    : (availableCourses[0] as any);
+  
+  const setActiveCourse = setSelectedCourse;
 
 // Verify problem type matches user progress once user loads
   useEffect(() => {
@@ -1217,6 +1243,22 @@ const handleInitialSetupComplete = async (name: string, avatar: string) => {
     { id: 5, icon: '🔥', title: 'Racha de 5', target: 5, current: Math.min(streak, 5), reward: { type: 'coins', amount: 300, label: '300 🪙' }, color: 'bg-amber-400' },
   ];
 
+  if (!user) {
+    return <ColegioLogin onLoginSuccess={(name) => {
+      const isSuper = name.toLowerCase() === 'admin';
+      setUser({ 
+        name: name || 'Estudiante', 
+        avatar: isSuper ? 'robot' : 'fox', 
+        coins: 0, 
+        tickets: 0, 
+        progress: 0, 
+        setupCompleted: isSuper, // Admin salta el setup
+        role: isSuper ? 'admin' : 'student', 
+        courseProgress: {} 
+      });
+    }} />;
+  }
+
   return (
     <>
       <AnimatePresence>
@@ -1307,7 +1349,9 @@ const handleInitialSetupComplete = async (name: string, avatar: string) => {
            
            {/* Left Navigation Sidebar */}
            <div className={`nav-sidebar hidden lg:flex landscape:flex flex-col w-64 landscape:max-lg:w-44 h-fit rounded-[2.5rem] p-6 landscape:max-lg:p-4 border-2 shadow-sm relative overflow-hidden ${currentThemeStyle.cardBg}`}>
-              <div className="text-3xl landscape:max-lg:text-2xl font-black text-blue-500 mb-8 landscape:max-lg:mb-4 tracking-tighter pl-2">fin<span className={currentThemeStyle.textPrimary}>duo</span></div>
+              <div className="flex items-center mb-8 landscape:max-lg:mb-4">
+                <img src="/img/logo_colegio.png" alt="Logo Colegio" className="h-10 w-auto object-contain ml-2 drop-shadow-md" />
+              </div>
               <nav className="flex flex-col gap-2 landscape:max-lg:gap-1 z-10 landscape:max-lg:text-sm">
                  <button onClick={() => setViewMode('map')} className={`flex items-center gap-4 ${viewMode === 'map' ? 'text-blue-600' : `${currentThemeStyle.textPrimary} hover:bg-slate-100`} font-bold p-3 rounded-2xl transition-all relative`}>
                     {viewMode === 'map' && <motion.div layoutId="nav-pill" className="absolute inset-0 bg-blue-50/80 border-2 border-blue-200 rounded-2xl z-0" transition={{ type: 'spring', stiffness: 300, damping: 30 }} />}
@@ -1315,7 +1359,7 @@ const handleInitialSetupComplete = async (name: string, avatar: string) => {
                  </button>
                  <button onClick={() => setViewMode('practice')} className={`flex items-center gap-4 ${viewMode === 'practice' ? 'text-blue-600' : `${currentThemeStyle.textPrimary} hover:bg-slate-100`} font-bold p-3 rounded-2xl transition-all relative`}>
                     {viewMode === 'practice' && <motion.div layoutId="nav-pill" className="absolute inset-0 bg-blue-50/80 border-2 border-blue-200 rounded-2xl z-0" transition={{ type: 'spring', stiffness: 300, damping: 30 }} />}
-                    <Icon name="target" className="relative z-10" /> <span className="relative z-10">Infinito</span>
+                    <Icon name="infinity" className="relative z-10" /> <span className="relative z-10">Infinito</span>
                  </button>
                  <button onClick={() => setViewMode('album')} className={`flex items-center gap-4 ${viewMode === 'album' ? 'text-blue-600' : `${currentThemeStyle.textPrimary} hover:bg-slate-100`} font-bold p-3 rounded-2xl transition-all relative`}>
                     {viewMode === 'album' && <motion.div layoutId="nav-pill" className="absolute inset-0 bg-blue-50/80 border-2 border-blue-200 rounded-2xl z-0" transition={{ type: 'spring', stiffness: 300, damping: 30 }} />}
@@ -1368,7 +1412,7 @@ const handleInitialSetupComplete = async (name: string, avatar: string) => {
                          <span className="text-[10px] font-medium opacity-80 leading-none">Repasa teoría y trucos 🧠✨</span>
                        </div>
                      </button>
-                     <CourseSelector activeCourse={activeCourse} setActiveCourse={setActiveCourse} />
+                     <CourseSelector activeCourse={activeCourse} setActiveCourse={setActiveCourse} user={user} />
                   </div>
                   
                   <div className="flex-1 relative overflow-hidden">
@@ -1488,7 +1532,7 @@ const handleInitialSetupComplete = async (name: string, avatar: string) => {
                          <Icon name="book" size={18} />
                          Códice
                        </button>
-                       <CourseSelector activeCourse={activeCourse} setActiveCourse={setActiveCourse} />
+                       <CourseSelector activeCourse={activeCourse} setActiveCourse={setActiveCourse} user={user} />
                      </div>
                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-5xl mx-auto">
                        {(activeCourse === 'geometria_5to' ? [
@@ -2401,6 +2445,7 @@ const handleInitialSetupComplete = async (name: string, avatar: string) => {
         />
       )}
 
+      <AudioToggle />
       <GlobalRipple />
     </div>
     </>
