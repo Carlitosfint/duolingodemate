@@ -23,10 +23,16 @@ export const requireAuth = async (
   }
 
   const token = authHeader.split('Bearer ')[1];
+  let decodedToken: DecodedIdToken;
   try {
-    const decodedToken = await adminAuth.verifyIdToken(token);
-    req.user = decodedToken;
+    decodedToken = await adminAuth.verifyIdToken(token);
+  } catch (error) {
+    console.error('Error verifying Firebase ID token:', error);
+    return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+  }
+  req.user = decodedToken;
 
+  try {
     // Accounts are provisioned by a school admin/teacher, never
     // self-registered — a Firebase-authenticated user with no matching
     // row here isn't part of any school, so the request is rejected
@@ -36,10 +42,9 @@ export const requireAuth = async (
       return res.status(403).json({ error: 'No hay una cuenta registrada para este usuario. Contacta a tu colegio.' });
     }
     req.dbUser = dbUser;
-
     next();
   } catch (error) {
-    console.error('Error verifying Firebase ID token:', error);
-    return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+    console.error('Error fetching user from database:', error);
+    return res.status(500).json({ error: 'No se pudo conectar con la base de datos.' });
   }
 };

@@ -665,8 +665,10 @@ export default function App() {
     localStorage.setItem('fin_tutorial_step', String(tutorialStep));
   }, [tutorialStep]);
 
-  // Tab distraction watcher
+  // Tab distraction watcher — only meaningful for students doing exercises;
+  // a teacher/admin switching tabs to use the dashboard isn't "distracted".
   useEffect(() => {
+    if (user?.role !== 'student') return;
     const handleVisibilityChange = () => {
       if (document.hidden) {
         setLastTabLeave(Date.now());
@@ -684,7 +686,7 @@ export default function App() {
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [lastTabLeave]);
+  }, [lastTabLeave, user?.role]);
 
   // Ambient music controller
   useEffect(() => {
