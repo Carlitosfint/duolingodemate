@@ -331,8 +331,9 @@ export default function App() {
     return u?.progress || 0;
   };
 
-  const handleInitialSetupComplete = async (data: { name: string; avatar: string; role: 'student' | 'teacher'; grade?: '3ro' | '4to' | '5to' }) => {
+  const handleInitialSetupComplete = async (data: { name: string; avatar: string; grade?: '3ro' | '4to' | '5to' }) => {
     if (user) {
+      // role is never set here — it's fixed server-side at account creation.
       const newUser = { ...user, ...data, setupCompleted: true };
       setUser(newUser);
       setShowWelcomeBonus(true);
@@ -379,21 +380,45 @@ export default function App() {
     }
   }, [authChecked, authUser, showLoginScreen]);
 
-  // First login on this device/browser (no cached profile yet): seed a
-  // fresh student profile from the Firebase account.
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
+
+  // First login on this device/browser (no cached profile yet): load the
+  // real account — name, role, school — from the backend instead of
+  // guessing. Accounts are provisioned by an admin/teacher with a fixed
+  // role, so the client must never invent one.
   useEffect(() => {
-    if (authUser && !user) {
-      setUser({
-        name: authUser.displayName || authUser.email?.split('@')[0] || 'Estudiante',
-        avatar: 'fox',
-        coins: 0,
-        tickets: 0,
-        progress: 0,
-        setupCompleted: false,
-        role: 'student',
-        courseProgress: {},
-      });
-    }
+    if (!authUser || user) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await authUser.getIdToken();
+        const res = await fetch('/api/user', { headers: { Authorization: `Bearer ${token}` } });
+        if (cancelled) return;
+        if (!res.ok) {
+          setProfileLoadError(
+            res.status === 403
+              ? 'No hay una cuenta registrada para este usuario. Contacta a tu colegio.'
+              : 'No se pudo cargar tu perfil. Intenta de nuevo.'
+          );
+          return;
+        }
+        const dbUser = await res.json();
+        setUser({
+          name: dbUser.name || authUser.displayName || authUser.email?.split('@')[0] || 'Estudiante',
+          avatar: dbUser.avatar || 'fox',
+          coins: dbUser.coins ?? 0,
+          tickets: dbUser.tickets ?? 0,
+          progress: dbUser.progress ?? 0,
+          setupCompleted: dbUser.setupCompleted ?? false,
+          role: dbUser.role || 'student',
+          courseProgress: dbUser.courseProgress || {},
+          classroom: dbUser.classroom || '',
+        });
+      } catch {
+        if (!cancelled) setProfileLoadError('Error de conexión al cargar tu perfil.');
+      }
+    })();
+    return () => { cancelled = true; };
   }, [authUser, user]);
 
   const [loginName, setLoginName] = useState("");
@@ -640,8 +665,10 @@ export default function App() {
     localStorage.setItem('fin_tutorial_step', String(tutorialStep));
   }, [tutorialStep]);
 
-  // Tab distraction watcher
+  // Tab distraction watcher — only meaningful for students doing exercises;
+  // a teacher/admin switching tabs to use the dashboard isn't "distracted".
   useEffect(() => {
+    if (user?.role !== 'student') return;
     const handleVisibilityChange = () => {
       if (document.hidden) {
         setLastTabLeave(Date.now());
@@ -659,7 +686,7 @@ export default function App() {
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [lastTabLeave]);
+  }, [lastTabLeave, user?.role]);
 
   // Ambient music controller
   useEffect(() => {
@@ -1300,6 +1327,22 @@ export default function App() {
     return <ColegioLogin onLoginSuccess={() => setShowLoginScreen(false)} />;
   }
 
+  if (profileLoadError) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-slate-50 p-6">
+        <div className="max-w-sm text-center space-y-4">
+          <p className="font-bold text-slate-700">{profileLoadError}</p>
+          <button
+            onClick={() => { setProfileLoadError(null); handleLogout(); }}
+            className="text-blue-600 hover:text-blue-700 font-bold underline underline-offset-2 text-sm"
+          >
+            Cerrar sesión e intentar con otra cuenta
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
       <div className="min-h-screen w-full flex items-center justify-center bg-slate-50">
@@ -1312,7 +1355,7 @@ export default function App() {
     <>
       <AnimatePresence>
         {user && !user.setupCompleted && (
-          <InitialSetup initialName={user.name} onComplete={handleInitialSetupComplete} />
+          <InitialSetup initialName={user.name} role={user.role === 'teacher' || user.role === 'admin' ? 'teacher' : 'student'} onComplete={handleInitialSetupComplete} />
         )}
       </AnimatePresence>
       <div className={`min-h-screen w-full transition-all duration-500 p-4 pb-16 font-sans select-none relative overflow-x-hidden ${currentThemeStyle.bgClass}`}>

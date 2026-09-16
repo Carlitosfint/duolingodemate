@@ -54,12 +54,13 @@ async function startServer() {
     }
     const name = String(req.body?.name || '').trim();
     const email = String(req.body?.email || '').trim();
-    const requestedRole = req.body?.role === 'teacher' ? 'teacher' : 'student';
+    const requestedRole =
+      req.body?.role === 'admin' ? 'admin' : req.body?.role === 'teacher' ? 'teacher' : 'student';
     if (!name || !email) {
       return res.status(400).json({ error: "Nombre y correo son obligatorios." });
     }
-    if (requestedRole === 'teacher' && caller.role !== 'admin') {
-      return res.status(403).json({ error: "Solo un administrador puede crear cuentas de profesor." });
+    if ((requestedRole === 'teacher' || requestedRole === 'admin') && caller.role !== 'admin') {
+      return res.status(403).json({ error: "Solo un administrador puede crear cuentas de profesor o administrador." });
     }
     try {
       const tempPassword = generateTempPassword();
