@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Button } from './UI';
-import { Icon } from './CustomIcons'; 
+import { Icon } from './CustomIcons';
 import { auth } from '../lib/firebase.ts';
+import { AdminCreateAccounts } from './AdminCreateAccounts';
 
-export const TeacherDashboard = () => {
+export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ currentUserRole }) => {
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedClassroomFilter, setSelectedClassroomFilter] = useState<string>('all');
@@ -59,6 +60,8 @@ export const TeacherDashboard = () => {
 
   return (
     <div className="space-y-6">
+      <AdminCreateAccounts canCreateTeachers={currentUserRole === 'admin'} />
+
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-black text-slate-800">Panel de Profesor / Admin</h2>
         <div className="flex items-center gap-4">

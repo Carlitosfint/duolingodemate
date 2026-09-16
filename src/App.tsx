@@ -1952,7 +1952,7 @@ export default function App() {
 
               {viewMode === 'teacher_dash' && (<TabTransition type="swipe" key="teacher_dash">
                 <div key="teacher_dash" className="flex-1 relative bg-white/50 overflow-hidden p-8 overflow-y-auto">
-                  <TeacherDashboard />
+                  <TeacherDashboard currentUserRole={user.role} />
                 </div>
               </TabTransition>)}
 

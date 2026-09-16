@@ -1,10 +1,20 @@
 import express from "express";
 import path from "path";
+import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 
 dotenv.config();
+
+// Readable temp password (no ambiguous 0/O/1/l), handed to the admin
+// once at account-creation time and never stored in plain text.
+function generateTempPassword(): string {
+  const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  return Array.from(crypto.randomFillSync(new Uint8Array(10)))
+    .map((b) => alphabet[b % alphabet.length])
+    .join("");
+}
 
 async function startServer() {
   const app = express();
@@ -14,16 +24,11 @@ async function startServer() {
 
   // Database endpoints
   const { requireAuth } = await import('./src/middleware/auth.ts');
-  const { getUserState, updateUserState, getAllStudents } = await import('./src/db/users.ts');
+  const { getUserState, updateUserState, getAllStudents, createSchoolUser } = await import('./src/db/users.ts');
+  const { adminAuth } = await import('./src/lib/firebase-admin.ts');
 
   app.get("/api/user", requireAuth, async (req: any, res) => {
-    try {
-      const user = await getUserState(req.user.uid);
-      res.json(user);
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: "Failed to fetch user state" });
-    }
+    res.json(req.dbUser);
   });
 
   app.post("/api/user/sync", requireAuth, async (req: any, res) => {
@@ -39,56 +44,110 @@ async function startServer() {
     }
   });
 
-  
-  app.post("/api/user/elevate", requireAuth, async (req: any, res) => {
+  // Creates one account (student or teacher) inside the caller's own
+  // school. Accounts are never self-registered — an admin/teacher makes
+  // them, so the schoolId always comes from the caller, never the body.
+  app.post("/api/admin/users", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    if (caller.role !== 'admin' && caller.role !== 'teacher') {
+      return res.status(403).json({ error: "Solo administradores o profesores pueden crear cuentas." });
+    }
+    const name = String(req.body?.name || '').trim();
+    const email = String(req.body?.email || '').trim();
+    const requestedRole = req.body?.role === 'teacher' ? 'teacher' : 'student';
+    if (!name || !email) {
+      return res.status(400).json({ error: "Nombre y correo son obligatorios." });
+    }
+    if (requestedRole === 'teacher' && caller.role !== 'admin') {
+      return res.status(403).json({ error: "Solo un administrador puede crear cuentas de profesor." });
+    }
     try {
-      const { code } = req.body;
-      if (code === 'PROFE2026') {
-        const user = await updateUserState(req.user.uid, { role: 'teacher' });
-        res.json(user);
-      } else if (code === 'ADMIN2026') {
-        const user = await updateUserState(req.user.uid, { role: 'admin' });
-        res.json(user);
-      } else {
-        res.status(403).json({ error: "Invalid code" });
+      const tempPassword = generateTempPassword();
+      const firebaseUser = await adminAuth.createUser({ email, password: tempPassword, displayName: name });
+      const dbUser = await createSchoolUser({
+        uid: firebaseUser.uid, email, name, schoolId: caller.schoolId, role: requestedRole,
+      });
+      res.json({ user: dbUser, tempPassword });
+    } catch (error: any) {
+      console.error(error);
+      if (error?.code === 'auth/email-already-exists') {
+        return res.status(409).json({ error: "Ya existe una cuenta con ese correo." });
       }
-    } catch (error) {
-      res.status(500).json({ error: "Failed to elevate role" });
+      res.status(500).json({ error: "No se pudo crear la cuenta." });
     }
   });
 
+  // Same as above, in bulk (e.g. pasting a class list). Each row is
+  // created independently so one bad email doesn't fail the whole batch.
+  app.post("/api/admin/users/bulk", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    if (caller.role !== 'admin' && caller.role !== 'teacher') {
+      return res.status(403).json({ error: "Solo administradores o profesores pueden crear cuentas." });
+    }
+    const students = req.body?.students;
+    if (!Array.isArray(students) || students.length === 0) {
+      return res.status(400).json({ error: "Envía al menos un alumno." });
+    }
+    if (students.length > 200) {
+      return res.status(400).json({ error: "Máximo 200 alumnos por carga." });
+    }
+
+    const results = [];
+    for (const raw of students) {
+      const name = String(raw?.name || '').trim();
+      const email = String(raw?.email || '').trim();
+      if (!name || !email) {
+        results.push({ name, email, status: 'error', error: 'Falta nombre o correo.' });
+        continue;
+      }
+      try {
+        const tempPassword = generateTempPassword();
+        const firebaseUser = await adminAuth.createUser({ email, password: tempPassword, displayName: name });
+        await createSchoolUser({ uid: firebaseUser.uid, email, name, schoolId: caller.schoolId, role: 'student' });
+        results.push({ name, email, tempPassword, status: 'ok' });
+      } catch (error: any) {
+        results.push({
+          name, email, status: 'error',
+          error: error?.code === 'auth/email-already-exists' ? 'Ya existe una cuenta con ese correo.' : 'No se pudo crear.',
+        });
+      }
+    }
+    res.json({ results });
+  });
+
   app.get("/api/teacher/students", requireAuth, async (req: any, res) => {
-
     try {
-      // In a real app we would check if req.user has a teacher role. 
-      // For now, we just return all students.
-      const user = await getUserState(req.user.uid);
-      if (user?.role !== 'teacher' && user?.role !== 'admin') {
+      const caller = req.dbUser;
+      if (caller.role !== 'teacher' && caller.role !== 'admin') {
         return res.status(403).json({ error: "Only teachers can view this" });
-
+      }
+      const students = await getAllStudents(caller.schoolId);
+      res.json(students);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch students" });
+    }
+  });
 
   app.post("/api/teacher/student/:uid", requireAuth, async (req: any, res) => {
     try {
-      const user = await getUserState(req.user.uid);
-      if (user?.role !== 'teacher' && user?.role !== 'admin') {
+      const caller = req.dbUser;
+      if (caller.role !== 'teacher' && caller.role !== 'admin') {
         return res.status(403).json({ error: "Only teachers can modify students" });
       }
       const targetUid = req.params.uid;
+      const target = await getUserState(targetUid);
+      // Same-school check: without it a teacher could update any uid,
+      // including a student from a different school.
+      if (!target || target.schoolId !== caller.schoolId) {
+        return res.status(404).json({ error: "Student not found" });
+      }
       const updates = req.body;
       const updatedUser = await updateUserState(targetUid, updates);
       res.json(updatedUser);
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Failed to update student" });
-    }
-  });
-
-      }
-      const students = await getAllStudents();
-      res.json(students);
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: "Failed to fetch students" });
     }
   });
 

@@ -1,10 +1,15 @@
 import { Request, Response, NextFunction } from 'express';
 import { adminAuth } from '../lib/firebase-admin.ts';
 import { DecodedIdToken } from 'firebase-admin/auth';
-import { getOrCreateUser } from '../db/users.ts';
+import { getUserState } from '../db/users.ts';
+import { users } from '../db/schema.ts';
 
 export interface AuthRequest extends Request {
   user?: DecodedIdToken;
+  // The caller's own row (includes schoolId/role) — every school-scoped
+  // route reads this instead of re-querying, and uses its schoolId to
+  // scope whatever it does.
+  dbUser?: typeof users.$inferSelect;
 }
 
 export const requireAuth = async (
@@ -21,10 +26,17 @@ export const requireAuth = async (
   try {
     const decodedToken = await adminAuth.verifyIdToken(token);
     req.user = decodedToken;
-    
-    // Ensure user exists in db
-    await getOrCreateUser(decodedToken.uid, decodedToken.email || '', decodedToken.name || '');
-    
+
+    // Accounts are provisioned by a school admin/teacher, never
+    // self-registered — a Firebase-authenticated user with no matching
+    // row here isn't part of any school, so the request is rejected
+    // rather than silently given a schoolless row.
+    const dbUser = await getUserState(decodedToken.uid);
+    if (!dbUser) {
+      return res.status(403).json({ error: 'No hay una cuenta registrada para este usuario. Contacta a tu colegio.' });
+    }
+    req.dbUser = dbUser;
+
     next();
   } catch (error) {
     console.error('Error verifying Firebase ID token:', error);
