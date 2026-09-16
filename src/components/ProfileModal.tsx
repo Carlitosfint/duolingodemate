@@ -3,7 +3,6 @@ import React from 'react';
 import { Card, Button } from './UI';
 import { Stats, Trophy } from '../types';
 import { Avatar } from './Avatar';
-import { auth } from '../lib/firebase.ts';
 
 interface ProfileModalProps {
   onClose?: () => void;
@@ -32,7 +31,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   onOpenCodice,
   onOpenMistakes
 }) => {
-  const [showRoleInput, setShowRoleInput] = React.useState(false);
   const content = (
     <div className={`w-full ${isInline ? 'h-full bg-white border-0 rounded-none overflow-hidden flex flex-col' : 'max-w-4xl bg-white border-[6px] border-slate-200 rounded-[2.5rem] md:rounded-[3rem] p-6 md:p-10 my-8 shadow-2xl animate-pop'} text-slate-800 relative`}>
       <div className={`flex flex-col lg:flex-row justify-between items-center gap-4 mb-8 border-b-2 border-slate-100 pb-6 relative z-10 ${isInline ? 'p-4 lg:p-8 pt-6 lg:pt-10 pb-6 shrink-0 mb-0' : ''}`}>
@@ -50,47 +48,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           ) : (
             <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Estudiante en Colegio Ángeles de Jesús</p>
           )}
-          
-          
-          {(user.role !== 'teacher' && user.role !== 'admin') && (
-            <div className="mt-1 text-left">
-              <button 
-                onClick={() => setShowRoleInput(!showRoleInput)}
-                className="text-[10px] text-slate-400 hover:text-slate-600 underline"
-              >
-                ¿Eres profesor o administrador?
-              </button>
-              {showRoleInput && (
-                <div className="mt-2 flex items-center gap-2">
-                  <input type="text" id="roleCode" placeholder="Código de acceso" className="text-xs px-2 py-1.5 rounded-lg border border-slate-200 outline-none focus:border-blue-400 font-bold" />
-                  <Button color="blue" className="py-1.5 px-3 text-[10px]" onClick={async () => {
-                    const input = document.getElementById('roleCode') as HTMLInputElement;
-                    const code = input?.value;
-                    if (code) {
-                      try {
-                        const token = await auth.currentUser?.getIdToken();
-                        const res = await fetch('/api/user/elevate', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                          body: JSON.stringify({ code })
-                        });
-                        if (res.ok) {
-                          alert('¡Rol actualizado! Recargando...');
-                          window.location.reload();
-                        } else {
-                          input.value = '';
-                          input.placeholder = 'Código inválido';
-                        }
-                      } catch (e) {
-                        console.error(e);
-                      }
-                    }
-                  }}>Verificar</Button>
-                </div>
-              )}
-            </div>
-          )}
-
 
           </div>
         </div>

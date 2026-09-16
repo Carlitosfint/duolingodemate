@@ -1,9 +1,21 @@
 import { relations } from 'drizzle-orm';
 import { integer, pgTable, serial, text, timestamp, jsonb, boolean } from 'drizzle-orm/pg-core';
 
+// A tenant: one row per school using the platform. Every school-scoped
+// table (users, and anything added later) carries a schoolId and every
+// query must filter by it — that's what keeps schools' data isolated
+// from each other on this shared database.
+export const schools = pgTable('schools', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  slug: text('slug').notNull().unique(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
   uid: text('uid').notNull().unique(), // Firebase Auth UID
+  schoolId: integer('school_id').notNull().references(() => schools.id),
   email: text('email').notNull(),
   name: text('name'),
   avatar: text('avatar'),
@@ -31,3 +43,11 @@ export const users = pgTable('users', {
   setupCompleted: boolean('setup_completed').default(false),
   classroom: text('classroom').default(''),
 });
+
+export const schoolsRelations = relations(schools, ({ many }) => ({
+  users: many(users),
+}));
+
+export const usersRelations = relations(users, ({ one }) => ({
+  school: one(schools, { fields: [users.schoolId], references: [schools.id] }),
+}));

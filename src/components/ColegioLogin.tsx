@@ -1,13 +1,31 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
+import { sendPasswordResetEmail, signInWithEmailAndPassword } from 'firebase/auth';
 import { Icon } from './CustomIcons';
 import { playClickSound, playErrorAlertSound, playRevealSound } from '../utils/audio';
+import { auth } from '../lib/firebase';
 
-export const ColegioLogin: React.FC<{ onLoginSuccess: (name: string) => void }> = ({ onLoginSuccess }) => {
-  const [username, setUsername] = useState('');
+const AUTH_ERROR_MESSAGES: Record<string, string> = {
+  'auth/invalid-email': 'Correo electrónico inválido.',
+  'auth/user-disabled': 'Esta cuenta ha sido deshabilitada.',
+  'auth/user-not-found': 'No existe una cuenta con ese correo.',
+  'auth/wrong-password': 'Usuario o contraseña incorrectos.',
+  'auth/invalid-credential': 'Usuario o contraseña incorrectos.',
+  'auth/missing-password': 'Ingresa una contraseña.',
+  'auth/too-many-requests': 'Demasiados intentos. Intenta de nuevo en unos minutos.',
+  'auth/network-request-failed': 'Error de conexión. Revisa tu internet.',
+};
+
+const getAuthErrorMessage = (code?: string) =>
+  (code && AUTH_ERROR_MESSAGES[code]) || 'Ocurrió un error. Intenta de nuevo.';
+
+export const ColegioLogin: React.FC<{ onLoginSuccess: () => void }> = ({ onLoginSuccess }) => {
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [showError, setShowError] = useState(false);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastVariant, setToastVariant] = useState<'error' | 'success'>('error');
 
   const circle1Ref = useRef<HTMLDivElement>(null);
   const circle2Ref = useRef<HTMLDivElement>(null);
@@ -17,61 +35,52 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: (name: string) => void }> 
   const cardRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    playClickSound();
-    
-    if (!username || password === 'error') {
-      // Amague de error
-      setLoading(true);
+  const showMessage = (message: string, variant: 'error' | 'success' = 'error') => {
+    setToastMessage(message);
+    setToastVariant(variant);
+    setShowToast(true);
+    setTimeout(() => setShowToast(false), 4000);
+  };
+
+  const triggerErrorShake = () => {
+    const circles = [circle1Ref.current, circle2Ref.current, circle3Ref.current, circle4Ref.current, circle5Ref.current];
+    if (containerRef.current) containerRef.current.style.zIndex = '9998';
+
+    circles.forEach((c) => {
+      if (c) {
+        c.style.animation = 'none';
+        c.style.transform = 'translate(-50%, 50%)';
+        c.style.transition = 'transform 0.15s cubic-bezier(0.22, 1, 0.36, 1)';
+      }
+    });
+
+    // reflow
+    void circles[0]?.offsetWidth;
+
+    circles.forEach((c, i) => {
       setTimeout(() => {
-        setLoading(false);
-        setShowError(true);
-        playErrorAlertSound();
-        setTimeout(() => setShowError(false), 4000);
+        if (c) c.style.transform = 'translate(-50%, 50%) scale(1.3)';
+      }, i * 20);
+    });
 
-        const circles = [circle1Ref.current, circle2Ref.current, circle3Ref.current, circle4Ref.current, circle5Ref.current];
-        if (containerRef.current) containerRef.current.style.zIndex = '9998';
-
-        circles.forEach((c) => {
-          if (c) {
-            c.style.animation = 'none';
-            c.style.transform = 'translate(-50%, 50%)';
-            c.style.transition = 'transform 0.15s cubic-bezier(0.22, 1, 0.36, 1)';
-          }
-        });
-
-        // reflow
-        void circles[0]?.offsetWidth;
-
-        circles.forEach((c, i) => {
-          setTimeout(() => {
-            if (c) c.style.transform = 'translate(-50%, 50%) scale(1.3)';
-          }, i * 20);
-        });
-
+    setTimeout(() => {
+      circles.forEach((c, i) => {
         setTimeout(() => {
-          circles.forEach((c, i) => {
-            setTimeout(() => {
-              if (c) c.style.transform = 'translate(-50%, 50%)';
-            }, i * 20);
-          });
-        }, 200);
+          if (c) c.style.transform = 'translate(-50%, 50%)';
+        }, i * 20);
+      });
+    }, 200);
 
-        setTimeout(() => {
-          if (containerRef.current) containerRef.current.style.zIndex = '20';
-        }, 400);
-      }, 500);
-      return;
-    }
+    setTimeout(() => {
+      if (containerRef.current) containerRef.current.style.zIndex = '20';
+    }, 400);
+  };
 
-    // Success transition
-    setLoading(true);
+  const triggerSuccessExpand = () => {
     if (cardRef.current) {
       cardRef.current.style.transition = 'opacity 0.4s';
       cardRef.current.style.opacity = '0';
     }
-
     if (containerRef.current) containerRef.current.style.zIndex = '9999';
 
     const circles = [circle1Ref.current, circle2Ref.current, circle3Ref.current, circle4Ref.current, circle5Ref.current];
@@ -84,15 +93,45 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: (name: string) => void }> 
     });
 
     setTimeout(() => {
-      onLoginSuccess(username);
+      onLoginSuccess();
     }, 1400);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    playClickSound();
+
+    setLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+      triggerSuccessExpand();
+    } catch (err: any) {
+      setLoading(false);
+      playErrorAlertSound();
+      showMessage(getAuthErrorMessage(err?.code));
+      triggerErrorShake();
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      showMessage('Ingresa tu correo para recuperar la contraseña.');
+      return;
+    }
+    playClickSound();
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      showMessage('Te enviamos un correo para restablecer tu contraseña.', 'success');
+    } catch (err: any) {
+      showMessage(getAuthErrorMessage(err?.code));
+    }
   };
 
   return (
     <div className="login-wrapper min-h-screen w-full flex items-center justify-center relative overflow-hidden font-sans" style={{ backgroundColor: '#f8fafc' }}>
       <style>{`
         .login-wrapper {
-          background-image: 
+          background-image:
             radial-gradient(at 0% 0%, rgba(0, 87, 255, 0.05) 0px, transparent 50%),
             radial-gradient(at 100% 0%, rgba(138, 43, 226, 0.05) 0px, transparent 50%),
             radial-gradient(at 100% 100%, rgba(253, 212, 0, 0.05) 0px, transparent 50%),
@@ -176,9 +215,11 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: (name: string) => void }> 
       <div className="floating-blob blob-2 rounded-full"></div>
 
       {/* Toast Notification */}
-      <div className={`toast-notification bg-red-50 border border-red-200 text-red-600 px-6 py-4 rounded-xl shadow-lg flex items-center gap-3 ${showError ? 'show' : ''}`}>
-        <Icon name="zap" size={20} className="text-red-600" />
-        <p className="font-medium text-sm">Usuario o contraseña incorrectos.</p>
+      <div className={`toast-notification px-6 py-4 rounded-xl shadow-lg flex items-center gap-3 border ${
+        toastVariant === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-600'
+      } ${showToast ? 'show' : ''}`}>
+        <Icon name={toastVariant === 'success' ? 'check' : 'zap'} size={20} className={toastVariant === 'success' ? 'text-emerald-600' : 'text-red-600'} />
+        <p className="font-medium text-sm">{toastMessage}</p>
       </div>
 
       <div className="circles-container" ref={containerRef}>
@@ -204,18 +245,18 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: (name: string) => void }> 
           <form onSubmit={handleSubmit}>
             <div className="space-y-6">
               <div>
-                <label className="block text-[11px] text-slate-500 mb-2 tracking-widest uppercase font-bold">USUARIO</label>
+                <label className="block text-[11px] text-slate-500 mb-2 tracking-widest uppercase font-bold">CORREO ELECTRÓNICO</label>
                 <div className="relative">
                   <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                    <Icon name="user" size={20} />
+                    <Icon name="mail" size={20} />
                   </div>
-                  <input 
-                    type="text" 
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    className="input-light w-full rounded-xl py-3.5 pl-12 pr-4 focus:outline-none font-medium" 
-                    placeholder="Ingresa tu usuario" 
-                    required 
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="input-light w-full rounded-xl py-3.5 pl-12 pr-4 focus:outline-none font-medium"
+                    placeholder="tucorreo@ejemplo.com"
+                    required
                     autoFocus
                   />
                 </div>
@@ -226,26 +267,35 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: (name: string) => void }> 
                   <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                     <Icon name="lock" size={20} />
                   </div>
-                  <input 
-                    type={showPassword ? "text" : "password"} 
+                  <input
+                    type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="input-light w-full rounded-xl py-3.5 pl-12 pr-4 focus:outline-none font-medium" 
-                    placeholder="••••••••" 
-                    required 
+                    className="input-light w-full rounded-xl py-3.5 pl-12 pr-4 focus:outline-none font-medium"
+                    placeholder="••••••••"
+                    required
                   />
-                  <button 
-                    type="button" 
-                    onClick={() => setShowPassword(!showPassword)} 
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-500 transition-colors focus:outline-none"
                   >
-                    <Icon name="target" size={20} />
+                    <Icon name={showPassword ? 'eye-off' : 'eye'} size={20} />
+                  </button>
+                </div>
+                <div className="text-right mt-2">
+                  <button
+                    type="button"
+                    onClick={handleForgotPassword}
+                    className="text-[11px] text-blue-500 hover:text-blue-700 font-bold underline underline-offset-2"
+                  >
+                    ¿Olvidaste tu contraseña?
                   </button>
                 </div>
               </div>
               <div className="pt-4">
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   disabled={loading}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-md shadow-blue-600/20 flex items-center justify-center gap-2 transition-colors disabled:opacity-70"
                 >
@@ -255,17 +305,10 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: (name: string) => void }> 
             </div>
           </form>
 
-          {/* Helper Text for Testing */}
           <div className="mt-6 pt-6 border-t border-slate-100 text-center">
-            <p className="text-xs text-slate-400 font-medium mb-2">💡 Tips para Pruebas Locales</p>
-            <div className="flex flex-wrap justify-center gap-2">
-              <button onClick={() => { setUsername('admin'); setPassword('admin'); }} className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-bold rounded-lg transition-colors">
-                Llenar Admin
-              </button>
-              <button onClick={() => { setUsername('carlos'); setPassword('123'); }} className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-bold rounded-lg transition-colors">
-                Llenar Alumno Nuevo
-              </button>
-            </div>
+            <p className="text-xs text-slate-400 font-medium">
+              ¿No tienes cuenta? Pídele a tu profesor o al colegio que te la cree.
+            </p>
           </div>
 
         </div>
