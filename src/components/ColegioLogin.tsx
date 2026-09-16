@@ -1,13 +1,43 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
+import {
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  updateProfile,
+} from 'firebase/auth';
 import { Icon } from './CustomIcons';
 import { playClickSound, playErrorAlertSound, playRevealSound } from '../utils/audio';
+import { auth } from '../lib/firebase';
 
-export const ColegioLogin: React.FC<{ onLoginSuccess: (name: string) => void }> = ({ onLoginSuccess }) => {
-  const [username, setUsername] = useState('');
+const AUTH_ERROR_MESSAGES: Record<string, string> = {
+  'auth/invalid-email': 'Correo electrónico inválido.',
+  'auth/user-disabled': 'Esta cuenta ha sido deshabilitada.',
+  'auth/user-not-found': 'No existe una cuenta con ese correo.',
+  'auth/wrong-password': 'Usuario o contraseña incorrectos.',
+  'auth/invalid-credential': 'Usuario o contraseña incorrectos.',
+  'auth/missing-password': 'Ingresa una contraseña.',
+  'auth/email-already-in-use': 'Ya existe una cuenta con ese correo.',
+  'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres.',
+  'auth/too-many-requests': 'Demasiados intentos. Intenta de nuevo en unos minutos.',
+  'auth/network-request-failed': 'Error de conexión. Revisa tu internet.',
+};
+
+const getAuthErrorMessage = (code?: string) =>
+  (code && AUTH_ERROR_MESSAGES[code]) || 'Ocurrió un error. Intenta de nuevo.';
+
+type Mode = 'login' | 'register';
+
+export const ColegioLogin: React.FC<{ onLoginSuccess: () => void }> = ({ onLoginSuccess }) => {
+  const [mode, setMode] = useState<Mode>('login');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [showError, setShowError] = useState(false);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastVariant, setToastVariant] = useState<'error' | 'success'>('error');
 
   const circle1Ref = useRef<HTMLDivElement>(null);
   const circle2Ref = useRef<HTMLDivElement>(null);
@@ -17,61 +47,52 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: (name: string) => void }> 
   const cardRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    playClickSound();
-    
-    if (!username || password === 'error') {
-      // Amague de error
-      setLoading(true);
+  const showMessage = (message: string, variant: 'error' | 'success' = 'error') => {
+    setToastMessage(message);
+    setToastVariant(variant);
+    setShowToast(true);
+    setTimeout(() => setShowToast(false), 4000);
+  };
+
+  const triggerErrorShake = () => {
+    const circles = [circle1Ref.current, circle2Ref.current, circle3Ref.current, circle4Ref.current, circle5Ref.current];
+    if (containerRef.current) containerRef.current.style.zIndex = '9998';
+
+    circles.forEach((c) => {
+      if (c) {
+        c.style.animation = 'none';
+        c.style.transform = 'translate(-50%, 50%)';
+        c.style.transition = 'transform 0.15s cubic-bezier(0.22, 1, 0.36, 1)';
+      }
+    });
+
+    // reflow
+    void circles[0]?.offsetWidth;
+
+    circles.forEach((c, i) => {
       setTimeout(() => {
-        setLoading(false);
-        setShowError(true);
-        playErrorAlertSound();
-        setTimeout(() => setShowError(false), 4000);
+        if (c) c.style.transform = 'translate(-50%, 50%) scale(1.3)';
+      }, i * 20);
+    });
 
-        const circles = [circle1Ref.current, circle2Ref.current, circle3Ref.current, circle4Ref.current, circle5Ref.current];
-        if (containerRef.current) containerRef.current.style.zIndex = '9998';
-
-        circles.forEach((c) => {
-          if (c) {
-            c.style.animation = 'none';
-            c.style.transform = 'translate(-50%, 50%)';
-            c.style.transition = 'transform 0.15s cubic-bezier(0.22, 1, 0.36, 1)';
-          }
-        });
-
-        // reflow
-        void circles[0]?.offsetWidth;
-
-        circles.forEach((c, i) => {
-          setTimeout(() => {
-            if (c) c.style.transform = 'translate(-50%, 50%) scale(1.3)';
-          }, i * 20);
-        });
-
+    setTimeout(() => {
+      circles.forEach((c, i) => {
         setTimeout(() => {
-          circles.forEach((c, i) => {
-            setTimeout(() => {
-              if (c) c.style.transform = 'translate(-50%, 50%)';
-            }, i * 20);
-          });
-        }, 200);
+          if (c) c.style.transform = 'translate(-50%, 50%)';
+        }, i * 20);
+      });
+    }, 200);
 
-        setTimeout(() => {
-          if (containerRef.current) containerRef.current.style.zIndex = '20';
-        }, 400);
-      }, 500);
-      return;
-    }
+    setTimeout(() => {
+      if (containerRef.current) containerRef.current.style.zIndex = '20';
+    }, 400);
+  };
 
-    // Success transition
-    setLoading(true);
+  const triggerSuccessExpand = () => {
     if (cardRef.current) {
       cardRef.current.style.transition = 'opacity 0.4s';
       cardRef.current.style.opacity = '0';
     }
-
     if (containerRef.current) containerRef.current.style.zIndex = '9999';
 
     const circles = [circle1Ref.current, circle2Ref.current, circle3Ref.current, circle4Ref.current, circle5Ref.current];
@@ -84,15 +105,66 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: (name: string) => void }> 
     });
 
     setTimeout(() => {
-      onLoginSuccess(username);
+      onLoginSuccess();
     }, 1400);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    playClickSound();
+
+    if (mode === 'register' && password !== confirmPassword) {
+      playErrorAlertSound();
+      showMessage('Las contraseñas no coinciden.');
+      triggerErrorShake();
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (mode === 'register') {
+        const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        if (name.trim()) {
+          await updateProfile(credential.user, { displayName: name.trim() });
+        }
+      } else {
+        await signInWithEmailAndPassword(auth, email.trim(), password);
+      }
+      triggerSuccessExpand();
+    } catch (err: any) {
+      setLoading(false);
+      playErrorAlertSound();
+      showMessage(getAuthErrorMessage(err?.code));
+      triggerErrorShake();
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      showMessage('Ingresa tu correo para recuperar la contraseña.');
+      return;
+    }
+    playClickSound();
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      showMessage('Te enviamos un correo para restablecer tu contraseña.', 'success');
+    } catch (err: any) {
+      showMessage(getAuthErrorMessage(err?.code));
+    }
+  };
+
+  const toggleMode = () => {
+    playClickSound();
+    setMode((m) => (m === 'login' ? 'register' : 'login'));
+    setPassword('');
+    setConfirmPassword('');
   };
 
   return (
     <div className="login-wrapper min-h-screen w-full flex items-center justify-center relative overflow-hidden font-sans" style={{ backgroundColor: '#f8fafc' }}>
       <style>{`
         .login-wrapper {
-          background-image: 
+          background-image:
             radial-gradient(at 0% 0%, rgba(0, 87, 255, 0.05) 0px, transparent 50%),
             radial-gradient(at 100% 0%, rgba(138, 43, 226, 0.05) 0px, transparent 50%),
             radial-gradient(at 100% 100%, rgba(253, 212, 0, 0.05) 0px, transparent 50%),
@@ -176,9 +248,11 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: (name: string) => void }> 
       <div className="floating-blob blob-2 rounded-full"></div>
 
       {/* Toast Notification */}
-      <div className={`toast-notification bg-red-50 border border-red-200 text-red-600 px-6 py-4 rounded-xl shadow-lg flex items-center gap-3 ${showError ? 'show' : ''}`}>
-        <Icon name="zap" size={20} className="text-red-600" />
-        <p className="font-medium text-sm">Usuario o contraseña incorrectos.</p>
+      <div className={`toast-notification px-6 py-4 rounded-xl shadow-lg flex items-center gap-3 border ${
+        toastVariant === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-600'
+      } ${showToast ? 'show' : ''}`}>
+        <Icon name={toastVariant === 'success' ? 'check' : 'zap'} size={20} className={toastVariant === 'success' ? 'text-emerald-600' : 'text-red-600'} />
+        <p className="font-medium text-sm">{toastMessage}</p>
       </div>
 
       <div className="circles-container" ref={containerRef}>
@@ -197,26 +271,49 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: (name: string) => void }> 
             <div className="flex items-center justify-center mb-6">
               <img src="/img/logo_colegio.png" alt="Logo Colegio" className="h-28 w-auto object-contain" />
             </div>
-            <h1 className="text-[32px] text-slate-900 mb-2 font-black tracking-tight">Bienvenido</h1>
-            <p className="text-slate-500 text-sm font-medium">Ingresa tus credenciales para continuar</p>
+            <h1 className="text-[32px] text-slate-900 mb-2 font-black tracking-tight">
+              {mode === 'login' ? 'Bienvenido' : 'Crea tu cuenta'}
+            </h1>
+            <p className="text-slate-500 text-sm font-medium">
+              {mode === 'login' ? 'Ingresa tus credenciales para continuar' : 'Regístrate para empezar a practicar'}
+            </p>
           </div>
 
           <form onSubmit={handleSubmit}>
             <div className="space-y-6">
+              {mode === 'register' && (
+                <div>
+                  <label className="block text-[11px] text-slate-500 mb-2 tracking-widest uppercase font-bold">NOMBRE</label>
+                  <div className="relative">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+                      <Icon name="user" size={20} />
+                    </div>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="input-light w-full rounded-xl py-3.5 pl-12 pr-4 focus:outline-none font-medium"
+                      placeholder="Tu nombre completo"
+                      required
+                      autoFocus
+                    />
+                  </div>
+                </div>
+              )}
               <div>
-                <label className="block text-[11px] text-slate-500 mb-2 tracking-widest uppercase font-bold">USUARIO</label>
+                <label className="block text-[11px] text-slate-500 mb-2 tracking-widest uppercase font-bold">CORREO ELECTRÓNICO</label>
                 <div className="relative">
                   <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                    <Icon name="user" size={20} />
+                    <Icon name="mail" size={20} />
                   </div>
-                  <input 
-                    type="text" 
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    className="input-light w-full rounded-xl py-3.5 pl-12 pr-4 focus:outline-none font-medium" 
-                    placeholder="Ingresa tu usuario" 
-                    required 
-                    autoFocus
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="input-light w-full rounded-xl py-3.5 pl-12 pr-4 focus:outline-none font-medium"
+                    placeholder="tucorreo@ejemplo.com"
+                    required
+                    autoFocus={mode === 'login'}
                   />
                 </div>
               </div>
@@ -226,46 +323,73 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: (name: string) => void }> 
                   <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                     <Icon name="lock" size={20} />
                   </div>
-                  <input 
-                    type={showPassword ? "text" : "password"} 
+                  <input
+                    type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="input-light w-full rounded-xl py-3.5 pl-12 pr-4 focus:outline-none font-medium" 
-                    placeholder="••••••••" 
-                    required 
+                    className="input-light w-full rounded-xl py-3.5 pl-12 pr-4 focus:outline-none font-medium"
+                    placeholder="••••••••"
+                    required
                   />
-                  <button 
-                    type="button" 
-                    onClick={() => setShowPassword(!showPassword)} 
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-500 transition-colors focus:outline-none"
                   >
-                    <Icon name="target" size={20} />
+                    <Icon name={showPassword ? 'eye-off' : 'eye'} size={20} />
                   </button>
                 </div>
+                {mode === 'login' && (
+                  <div className="text-right mt-2">
+                    <button
+                      type="button"
+                      onClick={handleForgotPassword}
+                      className="text-[11px] text-blue-500 hover:text-blue-700 font-bold underline underline-offset-2"
+                    >
+                      ¿Olvidaste tu contraseña?
+                    </button>
+                  </div>
+                )}
               </div>
+              {mode === 'register' && (
+                <div>
+                  <label className="block text-[11px] text-slate-500 mb-2 tracking-widest uppercase font-bold">CONFIRMAR CONTRASEÑA</label>
+                  <div className="relative">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+                      <Icon name="lock" size={20} />
+                    </div>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="input-light w-full rounded-xl py-3.5 pl-12 pr-4 focus:outline-none font-medium"
+                      placeholder="••••••••"
+                      required
+                    />
+                  </div>
+                </div>
+              )}
               <div className="pt-4">
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   disabled={loading}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-md shadow-blue-600/20 flex items-center justify-center gap-2 transition-colors disabled:opacity-70"
                 >
-                  {loading ? 'Validando...' : 'Iniciar Sesión'}
+                  {loading
+                    ? (mode === 'login' ? 'Validando...' : 'Creando cuenta...')
+                    : (mode === 'login' ? 'Iniciar Sesión' : 'Crear Cuenta')}
                 </button>
               </div>
             </div>
           </form>
 
-          {/* Helper Text for Testing */}
           <div className="mt-6 pt-6 border-t border-slate-100 text-center">
-            <p className="text-xs text-slate-400 font-medium mb-2">💡 Tips para Pruebas Locales</p>
-            <div className="flex flex-wrap justify-center gap-2">
-              <button onClick={() => { setUsername('admin'); setPassword('admin'); }} className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-bold rounded-lg transition-colors">
-                Llenar Admin
+            <p className="text-xs text-slate-500 font-medium">
+              {mode === 'login' ? '¿No tienes cuenta?' : '¿Ya tienes una cuenta?'}{' '}
+              <button onClick={toggleMode} className="text-blue-600 hover:text-blue-700 font-bold underline underline-offset-2">
+                {mode === 'login' ? 'Regístrate' : 'Inicia sesión'}
               </button>
-              <button onClick={() => { setUsername('carlos'); setPassword('123'); }} className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-bold rounded-lg transition-colors">
-                Llenar Alumno Nuevo
-              </button>
-            </div>
+            </p>
           </div>
 
         </div>

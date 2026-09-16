@@ -1,11 +1,12 @@
 import React from 'react';
-import { Hash, Sparkles as Sparkles2, Check as Check2, 
+import { Hash, Sparkles as Sparkles2, Check as Check2,
   Crown, Wallet, Box, TrendingUp, TrendingDown,
-  Sparkles, Cat, Rabbit, Bird, Dog, Target, BookOpen, FolderOpen, 
-  Store, User, GraduationCap, Flame, ArrowRight, X, Play, Volume2, Shield, 
-  Lock, Unlock, Package, Flag, Ghost, Orbit, Building, Gift, Settings, 
+  Sparkles, Cat, Rabbit, Bird, Dog, Target, BookOpen, FolderOpen,
+  Store, User, GraduationCap, Flame, ArrowRight, X, Play, Volume2, Shield,
+  Lock, Unlock, Package, Flag, Ghost, Orbit, Building, Gift, Settings,
   ChevronLeft, Check, AlertCircle, ShieldAlert, BadgeCent,
-  Trophy, Banknote, Landmark, ShieldCheck, Map as MapIcon, BookX, Diamond
+  Trophy, Banknote, Landmark, ShieldCheck, Map as MapIcon, BookX, Diamond,
+  Mail, Eye, EyeOff
 } from 'lucide-react';
 
 export const Icon = ({ name, className, size = 24 }: { name: string, className?: string, size?: number }) => {
@@ -342,6 +343,9 @@ export const Icon = ({ name, className, size = 24 }: { name: string, className?:
     case 'arrow_right': return <ArrowRight {...iconProps} />;
     case 'x': return <X {...iconProps} />;
     case 'check': return <Check2 {...iconProps} />;
+    case 'mail': return <Mail {...iconProps} />;
+    case 'eye': return <Eye {...iconProps} />;
+    case 'eye-off': return <EyeOff {...iconProps} />;
     default: return <Sparkles2 {...iconProps} />;
   }
 };

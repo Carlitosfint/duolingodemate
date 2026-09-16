@@ -1,6 +1,8 @@
 import ReactDOM from 'react-dom';
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, usePresence, useMotionValue, useMotionTemplate, animate } from 'motion/react';
+import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
+import { auth } from './lib/firebase';
 import { ProblemData, CurrentProblem, AlbumState, Stats, ShopItem, MarketEvent, PetBuff } from './types';
 import { roulettePrizes, themes, initialAlbums, PET_BUFFS, MARKET_EVENTS, SHOP_BANNERS, TROPHIES, PROMO_CODES_MAP } from './data';
 import {
@@ -355,6 +357,44 @@ export default function App() {
     return null;
   });
 
+  // Real Firebase session: authChecked flips once Firebase resolves any
+  // persisted session; showLoginScreen is decided only once from that,
+  // so a fresh login's success animation in ColegioLogin isn't cut short
+  // by the auth state updating mid-animation.
+  const [authUser, setAuthUser] = useState<FirebaseUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [showLoginScreen, setShowLoginScreen] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
+      setAuthUser(fbUser);
+      setAuthChecked(true);
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (authChecked && showLoginScreen === null) {
+      setShowLoginScreen(!authUser);
+    }
+  }, [authChecked, authUser, showLoginScreen]);
+
+  // First login on this device/browser (no cached profile yet): seed a
+  // fresh student profile from the Firebase account.
+  useEffect(() => {
+    if (authUser && !user) {
+      setUser({
+        name: authUser.displayName || authUser.email?.split('@')[0] || 'Estudiante',
+        avatar: 'fox',
+        coins: 0,
+        tickets: 0,
+        progress: 0,
+        setupCompleted: false,
+        role: 'student',
+        courseProgress: {},
+      });
+    }
+  }, [authUser, user]);
 
   const [loginName, setLoginName] = useState("");
   const [loginAvatar, setLoginAvatar] = useState("fox");
@@ -1215,6 +1255,11 @@ export default function App() {
   // computer never sees the previous student's progress.
   const handleLogout = async () => {
     playClickSound();
+    try {
+      await signOut(auth);
+    } catch (e) {
+      console.error('Error al cerrar sesión:', e);
+    }
     [
       'fin_user', 'fin_infinite_progress', 'fin_albums_state', 'fin_unplaced_pieces',
       'fin_current_problem', 'fin_equiped_pet', 'fin_purchased_pets', 'fin_purchased_themes',
@@ -1243,20 +1288,24 @@ export default function App() {
     { id: 5, icon: '🔥', title: 'Racha de 5', target: 5, current: Math.min(streak, 5), reward: { type: 'coins', amount: 300, label: '300 🪙' }, color: 'bg-amber-400' },
   ];
 
+  if (!authChecked || showLoginScreen === null) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-slate-50">
+        <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (showLoginScreen) {
+    return <ColegioLogin onLoginSuccess={() => setShowLoginScreen(false)} />;
+  }
+
   if (!user) {
-    return <ColegioLogin onLoginSuccess={(name) => {
-      const isSuper = name.toLowerCase() === 'admin';
-      setUser({ 
-        name: name || 'Estudiante', 
-        avatar: isSuper ? 'robot' : 'fox', 
-        coins: 0, 
-        tickets: 0, 
-        progress: 0, 
-        setupCompleted: isSuper, // Admin salta el setup
-        role: isSuper ? 'admin' : 'student', 
-        courseProgress: {} 
-      });
-    }} />;
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-slate-50">
+        <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+      </div>
+    );
   }
 
   return (
