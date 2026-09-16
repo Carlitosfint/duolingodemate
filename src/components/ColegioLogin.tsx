@@ -1,10 +1,5 @@
 import React, { useState, useRef } from 'react';
-import {
-  createUserWithEmailAndPassword,
-  sendPasswordResetEmail,
-  signInWithEmailAndPassword,
-  updateProfile,
-} from 'firebase/auth';
+import { sendPasswordResetEmail, signInWithEmailAndPassword } from 'firebase/auth';
 import { Icon } from './CustomIcons';
 import { playClickSound, playErrorAlertSound, playRevealSound } from '../utils/audio';
 import { auth } from '../lib/firebase';
@@ -16,8 +11,6 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
   'auth/wrong-password': 'Usuario o contraseña incorrectos.',
   'auth/invalid-credential': 'Usuario o contraseña incorrectos.',
   'auth/missing-password': 'Ingresa una contraseña.',
-  'auth/email-already-in-use': 'Ya existe una cuenta con ese correo.',
-  'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres.',
   'auth/too-many-requests': 'Demasiados intentos. Intenta de nuevo en unos minutos.',
   'auth/network-request-failed': 'Error de conexión. Revisa tu internet.',
 };
@@ -25,14 +18,9 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
 const getAuthErrorMessage = (code?: string) =>
   (code && AUTH_ERROR_MESSAGES[code]) || 'Ocurrió un error. Intenta de nuevo.';
 
-type Mode = 'login' | 'register';
-
 export const ColegioLogin: React.FC<{ onLoginSuccess: () => void }> = ({ onLoginSuccess }) => {
-  const [mode, setMode] = useState<Mode>('login');
-  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showToast, setShowToast] = useState(false);
@@ -113,23 +101,9 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void }> = ({ onLogin
     e.preventDefault();
     playClickSound();
 
-    if (mode === 'register' && password !== confirmPassword) {
-      playErrorAlertSound();
-      showMessage('Las contraseñas no coinciden.');
-      triggerErrorShake();
-      return;
-    }
-
     setLoading(true);
     try {
-      if (mode === 'register') {
-        const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
-        if (name.trim()) {
-          await updateProfile(credential.user, { displayName: name.trim() });
-        }
-      } else {
-        await signInWithEmailAndPassword(auth, email.trim(), password);
-      }
+      await signInWithEmailAndPassword(auth, email.trim(), password);
       triggerSuccessExpand();
     } catch (err: any) {
       setLoading(false);
@@ -151,13 +125,6 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void }> = ({ onLogin
     } catch (err: any) {
       showMessage(getAuthErrorMessage(err?.code));
     }
-  };
-
-  const toggleMode = () => {
-    playClickSound();
-    setMode((m) => (m === 'login' ? 'register' : 'login'));
-    setPassword('');
-    setConfirmPassword('');
   };
 
   return (
@@ -271,35 +238,12 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void }> = ({ onLogin
             <div className="flex items-center justify-center mb-6">
               <img src="/img/logo_colegio.png" alt="Logo Colegio" className="h-28 w-auto object-contain" />
             </div>
-            <h1 className="text-[32px] text-slate-900 mb-2 font-black tracking-tight">
-              {mode === 'login' ? 'Bienvenido' : 'Crea tu cuenta'}
-            </h1>
-            <p className="text-slate-500 text-sm font-medium">
-              {mode === 'login' ? 'Ingresa tus credenciales para continuar' : 'Regístrate para empezar a practicar'}
-            </p>
+            <h1 className="text-[32px] text-slate-900 mb-2 font-black tracking-tight">Bienvenido</h1>
+            <p className="text-slate-500 text-sm font-medium">Ingresa tus credenciales para continuar</p>
           </div>
 
           <form onSubmit={handleSubmit}>
             <div className="space-y-6">
-              {mode === 'register' && (
-                <div>
-                  <label className="block text-[11px] text-slate-500 mb-2 tracking-widest uppercase font-bold">NOMBRE</label>
-                  <div className="relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                      <Icon name="user" size={20} />
-                    </div>
-                    <input
-                      type="text"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="input-light w-full rounded-xl py-3.5 pl-12 pr-4 focus:outline-none font-medium"
-                      placeholder="Tu nombre completo"
-                      required
-                      autoFocus
-                    />
-                  </div>
-                </div>
-              )}
               <div>
                 <label className="block text-[11px] text-slate-500 mb-2 tracking-widest uppercase font-bold">CORREO ELECTRÓNICO</label>
                 <div className="relative">
@@ -313,7 +257,7 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void }> = ({ onLogin
                     className="input-light w-full rounded-xl py-3.5 pl-12 pr-4 focus:outline-none font-medium"
                     placeholder="tucorreo@ejemplo.com"
                     required
-                    autoFocus={mode === 'login'}
+                    autoFocus
                   />
                 </div>
               </div>
@@ -339,56 +283,31 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void }> = ({ onLogin
                     <Icon name={showPassword ? 'eye-off' : 'eye'} size={20} />
                   </button>
                 </div>
-                {mode === 'login' && (
-                  <div className="text-right mt-2">
-                    <button
-                      type="button"
-                      onClick={handleForgotPassword}
-                      className="text-[11px] text-blue-500 hover:text-blue-700 font-bold underline underline-offset-2"
-                    >
-                      ¿Olvidaste tu contraseña?
-                    </button>
-                  </div>
-                )}
-              </div>
-              {mode === 'register' && (
-                <div>
-                  <label className="block text-[11px] text-slate-500 mb-2 tracking-widest uppercase font-bold">CONFIRMAR CONTRASEÑA</label>
-                  <div className="relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                      <Icon name="lock" size={20} />
-                    </div>
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      className="input-light w-full rounded-xl py-3.5 pl-12 pr-4 focus:outline-none font-medium"
-                      placeholder="••••••••"
-                      required
-                    />
-                  </div>
+                <div className="text-right mt-2">
+                  <button
+                    type="button"
+                    onClick={handleForgotPassword}
+                    className="text-[11px] text-blue-500 hover:text-blue-700 font-bold underline underline-offset-2"
+                  >
+                    ¿Olvidaste tu contraseña?
+                  </button>
                 </div>
-              )}
+              </div>
               <div className="pt-4">
                 <button
                   type="submit"
                   disabled={loading}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-md shadow-blue-600/20 flex items-center justify-center gap-2 transition-colors disabled:opacity-70"
                 >
-                  {loading
-                    ? (mode === 'login' ? 'Validando...' : 'Creando cuenta...')
-                    : (mode === 'login' ? 'Iniciar Sesión' : 'Crear Cuenta')}
+                  {loading ? 'Validando...' : 'Iniciar Sesión'}
                 </button>
               </div>
             </div>
           </form>
 
           <div className="mt-6 pt-6 border-t border-slate-100 text-center">
-            <p className="text-xs text-slate-500 font-medium">
-              {mode === 'login' ? '¿No tienes cuenta?' : '¿Ya tienes una cuenta?'}{' '}
-              <button onClick={toggleMode} className="text-blue-600 hover:text-blue-700 font-bold underline underline-offset-2">
-                {mode === 'login' ? 'Regístrate' : 'Inicia sesión'}
-              </button>
+            <p className="text-xs text-slate-400 font-medium">
+              ¿No tienes cuenta? Pídele a tu profesor o al colegio que te la cree.
             </p>
           </div>
 
