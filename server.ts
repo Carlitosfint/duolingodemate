@@ -18,23 +18,12 @@ function generateTempPassword(): string {
 
 const VALID_GRADES = ['3ro', '4to', '5to'];
 
-function normalizeNamePart(value: string): string {
-  return (
-    value
-      .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip accents
-      .trim()
-      .split(/\s+/)[0] // first word only
-      ?.toLowerCase()
-      .replace(/[^a-z0-9]/g, '') || ''
-  );
-}
-
-// "Marian Martinez" -> marianmar@alumno.com. On a collision, retried
-// once with the DNI's last 4 digits appended, which is always unique.
-function generateStudentEmail(firstName: string, lastName: string, dni: string, withDniSuffix = false): string {
-  const base = normalizeNamePart(firstName) + normalizeNamePart(lastName).slice(0, 3);
-  const local = withDniSuffix ? base + dni.replace(/\D/g, '').slice(-4) : base;
-  return `${local}@alumno.com`;
+// "70962129" enrolled at school slug "angeles-de-jesus" ->
+// 70962129@angeles-de-jesus.alumno.com. DNI is unique platform-wide
+// (see schema.ts), so this can never collide — no retry/suffix needed.
+function generateStudentEmail(dni: string, schoolSlug: string): string {
+  const local = dni.replace(/[^a-zA-Z0-9]/g, '');
+  return `${local}@${schoolSlug}.alumno.com`;
 }
 
 function isDniConflict(error: any): boolean {
@@ -86,18 +75,8 @@ async function startServer() {
     const section = await assignSection(schoolId, grade, school?.sections || []);
     const tempPassword = generateTempPassword();
 
-    let email = customEmail || generateStudentEmail(firstName, lastName, dni);
-    let firebaseUser;
-    try {
-      firebaseUser = await adminAuth.createUser({ email, password: tempPassword, displayName: name });
-    } catch (err: any) {
-      if (!customEmail && err?.code === 'auth/email-already-exists') {
-        email = generateStudentEmail(firstName, lastName, dni, true);
-        firebaseUser = await adminAuth.createUser({ email, password: tempPassword, displayName: name });
-      } else {
-        throw err;
-      }
-    }
+    const email = customEmail || generateStudentEmail(dni, school?.slug || 'colegio');
+    const firebaseUser = await adminAuth.createUser({ email, password: tempPassword, displayName: name });
 
     const dbUser = await createSchoolUser({
       uid: firebaseUser.uid, email, name, schoolId, role: 'student',
