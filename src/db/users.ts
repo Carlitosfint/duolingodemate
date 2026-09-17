@@ -10,7 +10,7 @@ export async function createSchoolUser(params: {
   email: string;
   name: string;
   schoolId: number;
-  role: 'student' | 'teacher' | 'admin';
+  role: 'student' | 'teacher' | 'secretary' | 'admin';
   dni?: string;
   grade?: string;
   section?: string | null;

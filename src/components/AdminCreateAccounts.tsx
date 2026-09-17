@@ -4,6 +4,7 @@ import { auth } from '../lib/firebase';
 
 type CreateResult = { name: string; email?: string; tempPassword?: string; status: 'ok' | 'error'; error?: string };
 type Grade = '3ro' | '4to' | '5to';
+type Role = 'student' | 'teacher' | 'secretary' | 'admin';
 
 const authedFetch = async (url: string, options: RequestInit = {}) => {
   const token = await auth.currentUser?.getIdToken();
@@ -13,11 +14,13 @@ const authedFetch = async (url: string, options: RequestInit = {}) => {
   });
 };
 
-// Only rendered for admins — registering accounts isn't a teacher duty;
-// an admin who wants to delegate it creates another admin account.
-export const AdminCreateAccounts: React.FC = () => {
+// Rendered for admins and secretaries. A secretary can only enroll
+// students — appointing staff (teacher/secretary/admin) is reserved
+// for the admin, so canManageStaff hides that choice entirely rather
+// than showing options that would just get rejected by the server.
+export const AdminCreateAccounts: React.FC<{ canManageStaff: boolean }> = ({ canManageStaff }) => {
   const [mode, setMode] = useState<'individual' | 'bulk'>('individual');
-  const [role, setRole] = useState<'student' | 'teacher' | 'admin'>('student');
+  const [role, setRole] = useState<Role>('student');
 
   // Student fields
   const [firstName, setFirstName] = useState('');
@@ -164,18 +167,21 @@ export const AdminCreateAccounts: React.FC = () => {
 
       {mode === 'individual' ? (
         <form onSubmit={handleCreateOne} className="w-full space-y-4">
-          <div>
-            <label className="block text-[11px] text-slate-500 mb-1.5 tracking-widest uppercase font-bold">Rol</label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as 'student' | 'teacher' | 'admin')}
-              className="px-3 py-2.5 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-            >
-              <option value="student">Estudiante</option>
-              <option value="teacher">Profesor</option>
-              <option value="admin">Administrador</option>
-            </select>
-          </div>
+          {canManageStaff && (
+            <div>
+              <label className="block text-[11px] text-slate-500 mb-1.5 tracking-widest uppercase font-bold">Rol</label>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value as Role)}
+                className="px-3 py-2.5 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+              >
+                <option value="student">Estudiante</option>
+                <option value="teacher">Profesor</option>
+                <option value="secretary">Secretario</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </div>
+          )}
 
           {role === 'student' ? (
             <>

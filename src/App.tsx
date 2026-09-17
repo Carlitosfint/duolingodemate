@@ -283,7 +283,7 @@ const CourseSelector = ({ activeCourse, setActiveCourse, user }: { activeCourse:
     { id: 'geometria_5to', name: 'Geo 5to', icon: '🧊', color: 'text-rose-600', bg: 'bg-rose-100', allowedGrades: ['5to'] },
   ];
   
-  const courses = user?.role === 'admin' || user?.role === 'teacher' 
+  const courses = user?.role === 'admin' || user?.role === 'teacher' || user?.role === 'secretary' 
     ? allCourses 
     : allCourses.filter(c => c.allowedGrades.includes(user?.grade || '3ro'));
     
@@ -532,7 +532,7 @@ export default function App() {
     { id: 'geometria_5to', allowedGrades: ['5to'] },
   ];
   
-  const availableCourses = user?.role === 'admin' || user?.role === 'teacher' 
+  const availableCourses = user?.role === 'admin' || user?.role === 'teacher' || user?.role === 'secretary' 
     ? allCoursesData.map(c => c.id)
     : allCoursesData.filter(c => c.allowedGrades.includes(user?.grade || '3ro')).map(c => c.id);
     
@@ -1466,7 +1466,7 @@ export default function App() {
                     {viewMode === 'profile' && <motion.div layoutId="nav-pill" className="absolute inset-0 bg-blue-50/80 border-2 border-blue-200 rounded-2xl z-0" transition={{ type: 'spring', stiffness: 300, damping: 30 }} />}
                     <Icon name="user" className="relative z-10" /> <span className="relative z-10">Perfil</span>
                  </button>
-                 {(user?.role === 'teacher' || user?.role === 'admin') && (
+                 {(user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'secretary') && (
                    <button onClick={() => setViewMode('teacher_dash')} className={`flex items-center gap-4 ${viewMode === 'teacher_dash' ? 'text-blue-600' : `${currentThemeStyle.textPrimary} hover:bg-slate-100`} font-bold p-3 rounded-2xl transition-all relative`}>
                       {viewMode === 'teacher_dash' && <motion.div layoutId="nav-pill" className="absolute inset-0 bg-blue-50/80 border-2 border-blue-200 rounded-2xl z-0" transition={{ type: 'spring', stiffness: 300, damping: 30 }} />}
                       <Icon name="users" className="relative z-10" /> <span className="relative z-10">Alumnos</span>
@@ -2387,7 +2387,7 @@ export default function App() {
             <span className="text-[9px] font-black uppercase tracking-wider">Perfil</span>
           </button>
 
-          {(user?.role === 'teacher' || user?.role === 'admin') && (
+          {(user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'secretary') && (
             <button onClick={() => setViewMode('teacher_dash')} className={`p-2 rounded-xl flex flex-col items-center gap-1 ${viewMode === 'teacher_dash' ? 'text-blue-500' : 'text-slate-400'}`}>
               <Icon name="users" />
               <span className="text-[9px] font-black uppercase tracking-wider">Alumnos</span>

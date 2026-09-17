@@ -41,12 +41,13 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
               Perfil de {user.name}
             </h3>
             
-          {(user.role === 'teacher' || user.role === 'admin') ? (
+          {(user.role === 'teacher' || user.role === 'admin' || user.role === 'secretary') ? (
             <div className="bg-purple-100 text-purple-700 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider inline-flex items-center gap-1">
-              <Icon name="users" size={14} /> {user.role === 'admin' ? 'Administrador' : 'Profesor'}
+              <Icon name="users" size={14} />
+              {user.role === 'admin' ? 'Administrador' : user.role === 'secretary' ? 'Secretario' : 'Profesor'}
             </div>
           ) : (
-            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Estudiante en Colegio Ángeles de Jesús</p>
+            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Estudiante</p>
           )}
 
           </div>

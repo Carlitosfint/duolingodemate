@@ -41,6 +41,14 @@ function isDniConflict(error: any): boolean {
   return error?.cause?.code === '23505' || error?.code === '23505';
 }
 
+// School staff hierarchy: admin (director) > secretary (matrícula) >
+// teacher > student. A secretary can enroll/transfer students — the
+// job an admin would otherwise have to do themselves or hand off by
+// making that person a full admin — but never creates other staff.
+function canManageEnrollment(role: string): boolean {
+  return role === 'admin' || role === 'secretary';
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -121,11 +129,20 @@ async function startServer() {
   // always comes from the caller, never the body.
   app.post("/api/admin/users", requireAuth, async (req: any, res) => {
     const caller = req.dbUser;
-    if (caller.role !== 'admin') {
-      return res.status(403).json({ error: "Solo un administrador puede crear cuentas." });
+    if (!canManageEnrollment(caller.role)) {
+      return res.status(403).json({ error: "Solo un administrador o secretario puede crear cuentas." });
     }
     const requestedRole =
-      req.body?.role === 'admin' ? 'admin' : req.body?.role === 'teacher' ? 'teacher' : 'student';
+      req.body?.role === 'admin' ? 'admin'
+      : req.body?.role === 'secretary' ? 'secretary'
+      : req.body?.role === 'teacher' ? 'teacher'
+      : 'student';
+
+    // Only the top admin creates staff (teacher/secretary/admin) — a
+    // secretary can enroll students but never appoints other staff.
+    if (requestedRole !== 'student' && caller.role !== 'admin') {
+      return res.status(403).json({ error: "Solo un administrador puede crear cuentas de profesor, secretario o administrador." });
+    }
 
     if (requestedRole === 'student') {
       const firstName = String(req.body?.firstName || '').trim();
@@ -188,8 +205,8 @@ async function startServer() {
   // grade, section) changes.
   app.post("/api/admin/users/transfer", requireAuth, async (req: any, res) => {
     const caller = req.dbUser;
-    if (caller.role !== 'admin') {
-      return res.status(403).json({ error: "Solo un administrador puede transferir alumnos." });
+    if (!canManageEnrollment(caller.role)) {
+      return res.status(403).json({ error: "Solo un administrador o secretario puede transferir alumnos." });
     }
     const dni = String(req.body?.dni || '').trim();
     const grade = String(req.body?.grade || '');
@@ -226,8 +243,8 @@ async function startServer() {
   // created independently so one bad email doesn't fail the whole batch.
   app.post("/api/admin/users/bulk", requireAuth, async (req: any, res) => {
     const caller = req.dbUser;
-    if (caller.role !== 'admin') {
-      return res.status(403).json({ error: "Solo un administrador puede crear cuentas." });
+    if (!canManageEnrollment(caller.role)) {
+      return res.status(403).json({ error: "Solo un administrador o secretario puede crear cuentas." });
     }
     const grade = String(req.body?.grade || '');
     if (!VALID_GRADES.includes(grade)) {
@@ -272,7 +289,7 @@ async function startServer() {
   app.get("/api/teacher/students", requireAuth, async (req: any, res) => {
     try {
       const caller = req.dbUser;
-      if (caller.role !== 'teacher' && caller.role !== 'admin') {
+      if (caller.role !== 'teacher' && caller.role !== 'admin' && caller.role !== 'secretary') {
         return res.status(403).json({ error: "Only teachers can view this" });
       }
       const students = await getAllStudents(caller.schoolId);
@@ -296,7 +313,7 @@ async function startServer() {
   app.post("/api/teacher/student/:uid", requireAuth, async (req: any, res) => {
     try {
       const caller = req.dbUser;
-      if (caller.role !== 'teacher' && caller.role !== 'admin') {
+      if (caller.role !== 'teacher' && caller.role !== 'admin' && caller.role !== 'secretary') {
         return res.status(403).json({ error: "Only teachers can modify students" });
       }
       const targetUid = req.params.uid;
