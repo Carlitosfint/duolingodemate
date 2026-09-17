@@ -55,7 +55,7 @@ async function startServer() {
   // Database endpoints
   const { requireAuth } = await import('./src/middleware/auth.ts');
   const { getUserState, updateUserState, getAllStudents, createSchoolUser, countStudentsBySection, getUserByDni } = await import('./src/db/users.ts');
-  const { getSchool } = await import('./src/db/schools.ts');
+  const { getSchool, updateSchool } = await import('./src/db/schools.ts');
   const { adminAuth } = await import('./src/lib/firebase-admin.ts');
 
   // Section with the fewest students of this grade at this school right
@@ -115,6 +115,54 @@ async function startServer() {
 
   app.get("/api/user", requireAuth, async (req: any, res) => {
     res.json(req.dbUser);
+  });
+
+  // Read-only for any staff role (secretary/teacher enroll or manage
+  // students and may want to see the current domain/sections); only
+  // admin can change it, below.
+  app.get("/api/school", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    if (caller.role === 'student') {
+      return res.status(403).json({ error: "No autorizado." });
+    }
+    try {
+      const school = await getSchool(caller.schoolId);
+      res.json(school);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudo cargar el colegio." });
+    }
+  });
+
+  app.post("/api/school/settings", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    if (caller.role !== 'admin') {
+      return res.status(403).json({ error: "Solo un administrador puede cambiar la configuración del colegio." });
+    }
+    const updates: { emailDomain?: string | null; sections?: string[] } = {};
+    if (typeof req.body?.emailDomain === 'string') {
+      const domain = req.body.emailDomain.trim().toLowerCase();
+      if (domain && !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) {
+        return res.status(400).json({ error: 'El dominio no parece válido (ej. "aloe.com").' });
+      }
+      updates.emailDomain = domain || null;
+    }
+    if (Array.isArray(req.body?.sections)) {
+      updates.sections = req.body.sections
+        .map((s: any) => String(s).trim())
+        .filter(Boolean)
+        .filter((s: string, i: number, arr: string[]) => arr.indexOf(s) === i);
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "Nada que actualizar." });
+    }
+    try {
+      const updated = await updateSchool(caller.schoolId, updates);
+      res.json(updated);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudo actualizar la configuración." });
+    }
   });
 
   app.post("/api/user/sync", requireAuth, async (req: any, res) => {

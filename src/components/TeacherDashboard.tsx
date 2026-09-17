@@ -3,6 +3,7 @@ import { Card, Button } from './UI';
 import { Icon } from './CustomIcons';
 import { auth } from '../lib/firebase.ts';
 import { AdminCreateAccounts } from './AdminCreateAccounts';
+import { SchoolSettings } from './SchoolSettings';
 
 // Defined at module scope (not inside TeacherDashboard) so it keeps a
 // stable identity across re-renders — otherwise React would remount it
@@ -95,6 +96,8 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
 
   return (
     <div className="space-y-6">
+      {currentUserRole === 'admin' && <SchoolSettings />}
+
       {(currentUserRole === 'admin' || currentUserRole === 'secretary') && (
         <AdminCreateAccounts canManageStaff={currentUserRole === 'admin'} />
       )}
