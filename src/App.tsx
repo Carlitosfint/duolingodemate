@@ -895,19 +895,30 @@ export default function App() {
     setPreviewTheme(null); // Revert preview if answering
     if (!user || currentProblem.solved) return;
     
+    const isTruthTable = currentProblem.data.visualData?.type === 'truth_table';
     const valStr = inputAnswer.trim();
-    if (!valStr || isNaN(parseFloat(valStr))) {
+
+    if (isTruthTable) {
+      if (!/^[VF]{4}$/i.test(valStr)) {
+        setIsShaking(true);
+        setTimeout(() => setIsShaking(false), 400); // match animation duration
+        playErrorAlertSound();
+        return;
+      }
+    } else if (!valStr || isNaN(parseFloat(valStr))) {
       setIsShaking(true);
       setTimeout(() => setIsShaking(false), 400); // match animation duration
       playErrorAlertSound();
       return;
     }
-    
+
     const userVal = parseFloat(valStr);
     const correctVal = parseFloat(currentProblem.data.expectedAnswer);
-    
-    // Accept small rounding tolerance
-    const isCorrect = Math.abs(userVal - correctVal) <= 0.05;
+
+    // Accept small rounding tolerance for numeric answers; exact match for truth tables
+    const isCorrect = isTruthTable
+      ? valStr.toUpperCase() === String(currentProblem.data.expectedAnswer).toUpperCase()
+      : Math.abs(userVal - correctVal) <= 0.05;
 
     if (isCorrect) {
       setShowConfetti(true);
@@ -1029,7 +1040,7 @@ export default function App() {
         setIsSupernova(false);
         setAnswerState({
           type: 'wrong',
-          text: <span className="flex items-center gap-1 flex-wrap justify-center"><Icon name="x" size={18} /> Incorrecto. La respuesta era {correctVal}{currentProblem.data.unit}. ¡Vuelve a intentarlo!</span>
+          text: <span className="flex items-center gap-1 flex-wrap justify-center"><Icon name="x" size={18} /> Incorrecto. La respuesta era {isTruthTable ? currentProblem.data.expectedAnswer : correctVal}{currentProblem.data.unit}. ¡Vuelve a intentarlo!</span>
         });
 
         // Add to Mistakes

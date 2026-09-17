@@ -261,9 +261,9 @@ Por lo tanto, la matriz principal (de arriba hacia abajo) es **${expected_str}**
   } else {
     const t = rnd(0, 1);
     if (t === 0) {
-      intro = `Un jarrón fue roto. Ana dice: "Beto lo rompió". Beto dice: "Carlos lo rompió". Carlos dice: "Beto miente". Si solo uno de los tres dice la verdad, ¿cuántas letras tiene el nombre de quien rompió el jarrón?`;
-      expected = 3; 
-      explanation = `Beto y Carlos se contradicen. Uno de los dos debe decir la verdad. Como solo hay 1 verdad en total, Ana miente. Entonces Beto no lo rompió. Si Beto dijera la verdad, Carlos lo habría roto, pero entonces Carlos mentiría. Si Carlos dice la verdad, Beto miente (Carlos no fue). Como Ana miente, Beto miente y Carlos dice la verdad. Entonces, ninguno de los mencionados por los mentirosos es. Espera: si Ana miente (no fue Beto), y Beto miente (no fue Carlos), el culpable fue Ana (3 letras).`;
+      intro = `Un jarrón fue roto. Ana dice: "Beto lo rompió". Beto dice: "Carlos lo rompió". Carlos dice: "Beto miente". Si solo uno de los tres miente, ¿cuántas letras tiene el nombre de quien rompió el jarrón?`;
+      expected = 4;
+      explanation = `La afirmación de Carlos ("Beto miente") es, por definición, la negación de la afirmación de Beto: entre Beto y Carlos, uno dice la verdad y el otro miente, siempre. Como solo hay 1 mentiroso en total y ya está entre esos dos, Ana debe decir la verdad: "Beto lo rompió". Comprobando: si Beto es el culpable, su propia afirmación ("Carlos lo rompió") es falsa, y la de Carlos ("Beto miente") es verdadera. Entonces Ana dice la verdad, Beto miente y Carlos dice la verdad: exactamente 1 mentiroso. El culpable es Beto (4 letras).`;
     } else {
       const rojas = rnd(4, 7);
       const azules = rnd(4, 7);
