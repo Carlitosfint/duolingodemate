@@ -12,6 +12,10 @@ export const schools = pgTable('schools', {
   // Section labels available to every grade at this school (e.g.
   // ["A", "B"]). Empty means the school doesn't use sections at all.
   sections: jsonb('sections').$type<string[]>().default([]),
+  // Full domain the school chose for auto-generated student emails
+  // (e.g. "aloe.com" -> 20265473@aloe.com). Null falls back to
+  // "{slug}.alumno.com" until the school picks one.
+  emailDomain: text('email_domain'),
   createdAt: timestamp('created_at').defaultNow(),
 }).enableRLS();
 

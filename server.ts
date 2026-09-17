@@ -18,12 +18,20 @@ function generateTempPassword(): string {
 
 const VALID_GRADES = ['3ro', '4to', '5to'];
 
-// "70962129" enrolled at school slug "angeles-de-jesus" ->
-// 70962129@angeles-de-jesus.alumno.com. DNI is unique platform-wide
-// (see schema.ts), so this can never collide — no retry/suffix needed.
-function generateStudentEmail(dni: string, schoolSlug: string): string {
-  const local = dni.replace(/[^a-zA-Z0-9]/g, '');
-  return `${local}@${schoolSlug}.alumno.com`;
+// Deliberately not DNI-based — the login address shouldn't expose the
+// student's national ID. {year}{4 random digits}, e.g. "20265473". Not
+// guaranteed unique on its own (unlike DNI), so callers must retry on
+// a Firebase "already exists" collision — see createStudentAccount.
+function generateStudentLocalPart(): string {
+  const year = new Date().getFullYear();
+  const randomDigits = Math.floor(1000 + Math.random() * 9000);
+  return `${year}${randomDigits}`;
+}
+
+// A school's chosen domain (e.g. "aloe.com" -> 20265473@aloe.com), or
+// "{slug}.alumno.com" until it picks one.
+function studentEmailDomain(school: { slug: string; emailDomain?: string | null } | undefined): string {
+  return school?.emailDomain || `${school?.slug || 'colegio'}.alumno.com`;
 }
 
 function isDniConflict(error: any): boolean {
@@ -75,14 +83,34 @@ async function startServer() {
     const section = await assignSection(schoolId, grade, school?.sections || []);
     const tempPassword = generateTempPassword();
 
-    const email = customEmail || generateStudentEmail(dni, school?.slug || 'colegio');
-    const firebaseUser = await adminAuth.createUser({ email, password: tempPassword, displayName: name });
+    let email = customEmail;
+    let firebaseUser;
+    if (email) {
+      firebaseUser = await adminAuth.createUser({ email, password: tempPassword, displayName: name });
+    } else {
+      // The random local part isn't guaranteed unique on its own (unlike
+      // the old DNI-based one), so retry with a fresh one on collision.
+      const domain = studentEmailDomain(school);
+      const MAX_ATTEMPTS = 10;
+      let lastError: any;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS && !firebaseUser; attempt++) {
+        const candidate = `${generateStudentLocalPart()}@${domain}`;
+        try {
+          firebaseUser = await adminAuth.createUser({ email: candidate, password: tempPassword, displayName: name });
+          email = candidate;
+        } catch (err: any) {
+          if (err?.code !== 'auth/email-already-exists') throw err;
+          lastError = err;
+        }
+      }
+      if (!firebaseUser) throw lastError;
+    }
 
     const dbUser = await createSchoolUser({
-      uid: firebaseUser.uid, email, name, schoolId, role: 'student',
+      uid: firebaseUser.uid, email: email!, name, schoolId, role: 'student',
       dni, grade, section, classroom: section ? `${grade} ${section}` : grade,
     });
-    return { dbUser, tempPassword, email };
+    return { dbUser, tempPassword, email: email! };
   }
 
   app.get("/api/user", requireAuth, async (req: any, res) => {
