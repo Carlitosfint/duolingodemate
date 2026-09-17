@@ -3,6 +3,32 @@ import { Card, Button } from './UI';
 import { Icon } from './CustomIcons';
 import { auth } from '../lib/firebase.ts';
 import { AdminCreateAccounts } from './AdminCreateAccounts';
+import { SchoolSettings } from './SchoolSettings';
+
+// Defined at module scope (not inside TeacherDashboard) so it keeps a
+// stable identity across re-renders — otherwise React would remount it
+// on every parent update and the input would lose focus mid-keystroke.
+const EditableText: React.FC<{ value: string; onSave: (value: string) => void; placeholder?: string; className?: string }> = ({
+  value, onSave, placeholder, className,
+}) => {
+  const [draft, setDraft] = useState(value || '');
+  useEffect(() => { setDraft(value || ''); }, [value]);
+  return (
+    <input
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => { if (draft.trim() !== (value || '')) onSave(draft.trim()); }}
+      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      placeholder={placeholder}
+      className={
+        className ||
+        'w-full px-2 py-1 text-sm rounded-lg border border-transparent hover:border-slate-200 focus:border-blue-400 outline-none bg-transparent focus:bg-white'
+      }
+    />
+  );
+};
+
+const GRADES = ['3ro', '4to', '5to'] as const;
 
 export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ currentUserRole }) => {
   const [students, setStudents] = useState<any[]>([]);
@@ -50,6 +76,16 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
     }
   };
 
+  // Grade/section changes keep the free-text classroom column (used by
+  // the filter above) in sync, so correcting a typo made at enrollment
+  // doesn't leave the old filter option stale.
+  const updateGradeOrSection = (student: any, patch: { grade?: string; section?: string }) => {
+    const grade = patch.grade ?? student.grade ?? '';
+    const section = patch.section ?? student.section ?? '';
+    const classroom = section ? `${grade} ${section}`.trim() : grade;
+    updateStudent(student.uid, { ...patch, classroom });
+  };
+
   useEffect(() => {
     fetchStudents();
   }, []);
@@ -60,13 +96,17 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
 
   return (
     <div className="space-y-6">
-      <AdminCreateAccounts canCreateTeachers={currentUserRole === 'admin'} />
+      {currentUserRole === 'admin' && <SchoolSettings />}
+
+      {(currentUserRole === 'admin' || currentUserRole === 'secretary') && (
+        <AdminCreateAccounts canManageStaff={currentUserRole === 'admin'} />
+      )}
 
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-black text-slate-800">Panel de Profesor / Admin</h2>
         <div className="flex items-center gap-4">
-          <select 
-            value={selectedClassroomFilter} 
+          <select
+            value={selectedClassroomFilter}
             onChange={(e) => setSelectedClassroomFilter(e.target.value)}
             className="px-3 py-2 rounded-xl border border-slate-200 font-bold text-slate-600 bg-white outline-none focus:ring-2 focus:ring-blue-500"
           >
@@ -85,12 +125,14 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
 
       <Card className="p-0 !items-start !text-left w-full overflow-hidden">
         <div className="w-full overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[800px]">
+          <table className="w-full text-left border-collapse min-w-[950px]">
           <thead>
             <tr className="bg-slate-100 text-slate-500 text-[10px] uppercase font-black tracking-widest">
               <th className="p-4 rounded-tl-3xl">Estudiante</th>
               <th className="p-4">Email</th>
-              <th className="p-4">Salón</th>
+              <th className="p-4">DNI</th>
+              <th className="p-4">Grado</th>
+              <th className="p-4">Sección</th>
               <th className="p-4 text-center">Progreso</th>
               <th className="p-4 text-center">Monedas</th>
               <th className="p-4 text-center">Tickets</th>
@@ -101,7 +143,7 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
           <tbody className="divide-y divide-slate-100 text-sm font-bold text-slate-700">
             {students.length === 0 ? (
               <tr>
-                <td colSpan={8} className="p-8 text-center text-slate-500">
+                <td colSpan={10} className="p-8 text-center text-slate-500">
                   No hay estudiantes registrados aún.
                 </td>
               </tr>
@@ -119,24 +161,41 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
                         <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-xl shrink-0">
                           {student.avatar === 'fox' ? '🦊' : student.avatar === 'cat' ? '🐱' : student.avatar === 'panda' ? '🐼' : student.avatar === 'tiger' ? '🐯' : student.avatar === 'lion' ? '🦁' : student.avatar === 'bear' ? '🐻' : '🦊'}
                         </div>
-                        <div className="font-black text-slate-800 break-words whitespace-normal min-w-[150px]">{student.name}</div>
+                        <EditableText
+                          value={student.name}
+                          onSave={(v) => updateStudent(student.uid, { name: v })}
+                          className="font-black text-slate-800 bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-400 outline-none rounded-lg px-1.5 py-1 min-w-[130px]"
+                        />
                       </div>
                     </td>
                     <td className="p-4 text-slate-500 font-medium">{student.email}</td>
                     <td className="p-4">
+                      <EditableText
+                        value={student.dni || ''}
+                        onSave={(v) => updateStudent(student.uid, { dni: v })}
+                        placeholder="—"
+                        className="w-24 px-2 py-1 text-xs rounded-lg border border-transparent hover:border-slate-200 focus:border-blue-400 outline-none bg-transparent focus:bg-white"
+                      />
+                    </td>
+                    <td className="p-4">
                       <select
-                        value={student.classroom || ''}
-                        onChange={(e) => updateStudent(student.uid, { classroom: e.target.value })}
-                        className="px-2 py-1 text-xs rounded-lg border border-slate-200 text-slate-600 outline-none focus:ring-1 focus:ring-blue-500 w-24 bg-slate-50 hover:bg-white"
+                        value={student.grade || ''}
+                        onChange={(e) => updateGradeOrSection(student, { grade: e.target.value })}
+                        className="px-2 py-1 text-xs rounded-lg border border-slate-200 text-slate-600 outline-none focus:ring-1 focus:ring-blue-500 bg-slate-50 hover:bg-white"
                       >
-                        <option value="">- Asignar -</option>
-                        <option value="5to A">5to A</option>
-                        <option value="5to B">5to B</option>
-                        <option value="4to A">4to A</option>
-                        <option value="4to B">4to B</option>
-                        <option value="3ro A">3ro A</option>
-                        <option value="3ro B">3ro B</option>
+                        <option value="">- Grado -</option>
+                        {GRADES.map((g) => (
+                          <option key={g} value={g}>{g}</option>
+                        ))}
                       </select>
+                    </td>
+                    <td className="p-4">
+                      <EditableText
+                        value={student.section || ''}
+                        onSave={(v) => updateGradeOrSection(student, { section: v })}
+                        placeholder="—"
+                        className="w-14 px-2 py-1 text-xs rounded-lg border border-transparent hover:border-slate-200 focus:border-blue-400 outline-none bg-transparent focus:bg-white"
+                      />
                     </td>
                     <td className="p-4 text-center text-blue-600 font-black">{student.progress}</td>
                     <td className="p-4 text-center text-amber-500 font-black">{student.coins}</td>

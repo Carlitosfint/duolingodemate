@@ -109,7 +109,7 @@ export interface Stats {
 
 export interface UserState {
   setupCompleted?: boolean;
-  role?: 'student' | 'teacher' | 'admin';
+  role?: 'student' | 'teacher' | 'secretary' | 'admin';
   grade?: '3ro' | '4to' | '5to';
   name: string;
   avatar: string;

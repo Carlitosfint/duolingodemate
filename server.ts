@@ -16,6 +16,36 @@ function generateTempPassword(): string {
     .join("");
 }
 
+const VALID_GRADES = ['3ro', '4to', '5to'];
+
+// Deliberately not DNI-based — the login address shouldn't expose the
+// student's national ID. {year}{4 random digits}, e.g. "20265473". Not
+// guaranteed unique on its own (unlike DNI), so callers must retry on
+// a Firebase "already exists" collision — see createStudentAccount.
+function generateStudentLocalPart(): string {
+  const year = new Date().getFullYear();
+  const randomDigits = Math.floor(1000 + Math.random() * 9000);
+  return `${year}${randomDigits}`;
+}
+
+// A school's chosen domain (e.g. "aloe.com" -> 20265473@aloe.com), or
+// "{slug}.alumno.com" until it picks one.
+function studentEmailDomain(school: { slug: string; emailDomain?: string | null } | undefined): string {
+  return school?.emailDomain || `${school?.slug || 'colegio'}.alumno.com`;
+}
+
+function isDniConflict(error: any): boolean {
+  return error?.cause?.code === '23505' || error?.code === '23505';
+}
+
+// School staff hierarchy: admin (director) > secretary (matrícula) >
+// teacher > student. A secretary can enroll/transfer students — the
+// job an admin would otherwise have to do themselves or hand off by
+// making that person a full admin — but never creates other staff.
+function canManageEnrollment(role: string): boolean {
+  return role === 'admin' || role === 'secretary';
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -24,11 +54,115 @@ async function startServer() {
 
   // Database endpoints
   const { requireAuth } = await import('./src/middleware/auth.ts');
-  const { getUserState, updateUserState, getAllStudents, createSchoolUser } = await import('./src/db/users.ts');
+  const { getUserState, updateUserState, getAllStudents, createSchoolUser, countStudentsBySection, getUserByDni } = await import('./src/db/users.ts');
+  const { getSchool, updateSchool } = await import('./src/db/schools.ts');
   const { adminAuth } = await import('./src/lib/firebase-admin.ts');
+
+  // Section with the fewest students of this grade at this school right
+  // now — keeps sections balanced no matter what order students enroll
+  // in. Returns null if the school doesn't use sections.
+  async function assignSection(schoolId: number, grade: string, sections: string[]): Promise<string | null> {
+    if (!sections || sections.length === 0) return null;
+    const counts = await countStudentsBySection(schoolId, grade);
+    const countBySection = new Map(counts.map((c) => [c.section, c.count]));
+    let best = sections[0];
+    let bestCount = countBySection.get(best) ?? 0;
+    for (const s of sections) {
+      const c = countBySection.get(s) ?? 0;
+      if (c < bestCount) { best = s; bestCount = c; }
+    }
+    return best;
+  }
+
+  async function createStudentAccount(params: {
+    schoolId: number; firstName: string; lastName: string; dni: string; grade: string; customEmail: string;
+  }) {
+    const { schoolId, firstName, lastName, dni, grade, customEmail } = params;
+    const name = `${firstName} ${lastName}`;
+    const school = await getSchool(schoolId);
+    const section = await assignSection(schoolId, grade, school?.sections || []);
+    const tempPassword = generateTempPassword();
+
+    let email = customEmail;
+    let firebaseUser;
+    if (email) {
+      firebaseUser = await adminAuth.createUser({ email, password: tempPassword, displayName: name });
+    } else {
+      // The random local part isn't guaranteed unique on its own (unlike
+      // the old DNI-based one), so retry with a fresh one on collision.
+      const domain = studentEmailDomain(school);
+      const MAX_ATTEMPTS = 10;
+      let lastError: any;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS && !firebaseUser; attempt++) {
+        const candidate = `${generateStudentLocalPart()}@${domain}`;
+        try {
+          firebaseUser = await adminAuth.createUser({ email: candidate, password: tempPassword, displayName: name });
+          email = candidate;
+        } catch (err: any) {
+          if (err?.code !== 'auth/email-already-exists') throw err;
+          lastError = err;
+        }
+      }
+      if (!firebaseUser) throw lastError;
+    }
+
+    const dbUser = await createSchoolUser({
+      uid: firebaseUser.uid, email: email!, name, schoolId, role: 'student',
+      dni, grade, section, classroom: section ? `${grade} ${section}` : grade,
+    });
+    return { dbUser, tempPassword, email: email! };
+  }
 
   app.get("/api/user", requireAuth, async (req: any, res) => {
     res.json(req.dbUser);
+  });
+
+  // Read-only for any staff role (secretary/teacher enroll or manage
+  // students and may want to see the current domain/sections); only
+  // admin can change it, below.
+  app.get("/api/school", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    if (caller.role === 'student') {
+      return res.status(403).json({ error: "No autorizado." });
+    }
+    try {
+      const school = await getSchool(caller.schoolId);
+      res.json(school);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudo cargar el colegio." });
+    }
+  });
+
+  app.post("/api/school/settings", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    if (caller.role !== 'admin') {
+      return res.status(403).json({ error: "Solo un administrador puede cambiar la configuración del colegio." });
+    }
+    const updates: { emailDomain?: string | null; sections?: string[] } = {};
+    if (typeof req.body?.emailDomain === 'string') {
+      const domain = req.body.emailDomain.trim().toLowerCase();
+      if (domain && !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) {
+        return res.status(400).json({ error: 'El dominio no parece válido (ej. "aloe.com").' });
+      }
+      updates.emailDomain = domain || null;
+    }
+    if (Array.isArray(req.body?.sections)) {
+      updates.sections = req.body.sections
+        .map((s: any) => String(s).trim())
+        .filter(Boolean)
+        .filter((s: string, i: number, arr: string[]) => arr.indexOf(s) === i);
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "Nada que actualizar." });
+    }
+    try {
+      const updated = await updateSchool(caller.schoolId, updates);
+      res.json(updated);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudo actualizar la configuración." });
+    }
   });
 
   app.post("/api/user/sync", requireAuth, async (req: any, res) => {
@@ -44,23 +178,64 @@ async function startServer() {
     }
   });
 
-  // Creates one account (student or teacher) inside the caller's own
-  // school. Accounts are never self-registered — an admin/teacher makes
-  // them, so the schoolId always comes from the caller, never the body.
+  // Creates one account (student, teacher or admin) inside the caller's
+  // own school. Accounts are never self-registered — only an admin makes
+  // them (registering students isn't a teacher duty), so the schoolId
+  // always comes from the caller, never the body.
   app.post("/api/admin/users", requireAuth, async (req: any, res) => {
     const caller = req.dbUser;
-    if (caller.role !== 'admin' && caller.role !== 'teacher') {
-      return res.status(403).json({ error: "Solo administradores o profesores pueden crear cuentas." });
+    if (!canManageEnrollment(caller.role)) {
+      return res.status(403).json({ error: "Solo un administrador o secretario puede crear cuentas." });
     }
+    const requestedRole =
+      req.body?.role === 'admin' ? 'admin'
+      : req.body?.role === 'secretary' ? 'secretary'
+      : req.body?.role === 'teacher' ? 'teacher'
+      : 'student';
+
+    // Only the top admin creates staff (teacher/secretary/admin) — a
+    // secretary can enroll students but never appoints other staff.
+    if (requestedRole !== 'student' && caller.role !== 'admin') {
+      return res.status(403).json({ error: "Solo un administrador puede crear cuentas de profesor, secretario o administrador." });
+    }
+
+    if (requestedRole === 'student') {
+      const firstName = String(req.body?.firstName || '').trim();
+      const lastName = String(req.body?.lastName || '').trim();
+      const dni = String(req.body?.dni || '').trim();
+      const grade = String(req.body?.grade || '');
+      const customEmail = String(req.body?.email || '').trim();
+      if (!firstName || !lastName || !dni || !grade) {
+        return res.status(400).json({ error: "Nombre, apellido, DNI y grado son obligatorios." });
+      }
+      if (!VALID_GRADES.includes(grade)) {
+        return res.status(400).json({ error: "Grado inválido." });
+      }
+      try {
+        const { dbUser, tempPassword } = await createStudentAccount({
+          schoolId: caller.schoolId, firstName, lastName, dni, grade, customEmail,
+        });
+        return res.json({ user: dbUser, tempPassword });
+      } catch (error: any) {
+        console.error(error);
+        if (error?.code === 'auth/email-already-exists') {
+          return res.status(409).json({ error: "Ya existe una cuenta con ese correo." });
+        }
+        if (isDniConflict(error)) {
+          return res.status(409).json({
+            error: "Ya existe una cuenta con ese DNI en la plataforma.",
+            code: "dni_exists",
+          });
+        }
+        return res.status(500).json({ error: "No se pudo crear la cuenta." });
+      }
+    }
+
+    // Teacher / admin: simpler shape, no enrollment fields.
     const name = String(req.body?.name || '').trim();
     const email = String(req.body?.email || '').trim();
-    const requestedRole =
-      req.body?.role === 'admin' ? 'admin' : req.body?.role === 'teacher' ? 'teacher' : 'student';
     if (!name || !email) {
       return res.status(400).json({ error: "Nombre y correo son obligatorios." });
-    }
-    if ((requestedRole === 'teacher' || requestedRole === 'admin') && caller.role !== 'admin') {
-      return res.status(403).json({ error: "Solo un administrador puede crear cuentas de profesor o administrador." });
     }
     try {
       const tempPassword = generateTempPassword();
@@ -78,12 +253,57 @@ async function startServer() {
     }
   });
 
+  // Moves an existing student (found by DNI, unique platform-wide) into
+  // the caller's school — the path for a legitimate transfer from
+  // another school on this platform, instead of rejecting as a
+  // duplicate. Keeps uid/email/progress; only the enrollment (school,
+  // grade, section) changes.
+  app.post("/api/admin/users/transfer", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    if (!canManageEnrollment(caller.role)) {
+      return res.status(403).json({ error: "Solo un administrador o secretario puede transferir alumnos." });
+    }
+    const dni = String(req.body?.dni || '').trim();
+    const grade = String(req.body?.grade || '');
+    if (!dni || !grade) {
+      return res.status(400).json({ error: "DNI y grado son obligatorios." });
+    }
+    if (!VALID_GRADES.includes(grade)) {
+      return res.status(400).json({ error: "Grado inválido." });
+    }
+    try {
+      const existing = await getUserByDni(dni);
+      if (!existing || existing.role !== 'student') {
+        return res.status(404).json({ error: "No existe un alumno con ese DNI." });
+      }
+      if (existing.schoolId === caller.schoolId) {
+        return res.status(400).json({ error: "Ese DNI ya pertenece a un alumno de tu propio colegio." });
+      }
+      const school = await getSchool(caller.schoolId);
+      const section = await assignSection(caller.schoolId, grade, school?.sections || []);
+      const updated = await updateUserState(existing.uid, {
+        schoolId: caller.schoolId,
+        grade,
+        section,
+        classroom: section ? `${grade} ${section}` : grade,
+      });
+      res.json({ user: updated });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudo transferir al alumno." });
+    }
+  });
+
   // Same as above, in bulk (e.g. pasting a class list). Each row is
   // created independently so one bad email doesn't fail the whole batch.
   app.post("/api/admin/users/bulk", requireAuth, async (req: any, res) => {
     const caller = req.dbUser;
-    if (caller.role !== 'admin' && caller.role !== 'teacher') {
-      return res.status(403).json({ error: "Solo administradores o profesores pueden crear cuentas." });
+    if (!canManageEnrollment(caller.role)) {
+      return res.status(403).json({ error: "Solo un administrador o secretario puede crear cuentas." });
+    }
+    const grade = String(req.body?.grade || '');
+    if (!VALID_GRADES.includes(grade)) {
+      return res.status(400).json({ error: "Selecciona el grado de esta carga." });
     }
     const students = req.body?.students;
     if (!Array.isArray(students) || students.length === 0) {
@@ -95,22 +315,27 @@ async function startServer() {
 
     const results = [];
     for (const raw of students) {
-      const name = String(raw?.name || '').trim();
-      const email = String(raw?.email || '').trim();
-      if (!name || !email) {
-        results.push({ name, email, status: 'error', error: 'Falta nombre o correo.' });
+      const firstName = String(raw?.firstName || '').trim();
+      const lastName = String(raw?.lastName || '').trim();
+      const dni = String(raw?.dni || '').trim();
+      const customEmail = String(raw?.email || '').trim();
+      const name = `${firstName} ${lastName}`.trim();
+      if (!firstName || !lastName || !dni) {
+        results.push({ name, status: 'error', error: 'Falta nombre, apellido o DNI.' });
         continue;
       }
       try {
-        const tempPassword = generateTempPassword();
-        const firebaseUser = await adminAuth.createUser({ email, password: tempPassword, displayName: name });
-        await createSchoolUser({ uid: firebaseUser.uid, email, name, schoolId: caller.schoolId, role: 'student' });
+        const { tempPassword, email } = await createStudentAccount({
+          schoolId: caller.schoolId, firstName, lastName, dni, grade, customEmail,
+        });
         results.push({ name, email, tempPassword, status: 'ok' });
       } catch (error: any) {
-        results.push({
-          name, email, status: 'error',
-          error: error?.code === 'auth/email-already-exists' ? 'Ya existe una cuenta con ese correo.' : 'No se pudo crear.',
-        });
+        const message = error?.code === 'auth/email-already-exists'
+          ? 'Ya existe una cuenta con ese correo.'
+          : isDniConflict(error)
+          ? 'Ya existe una cuenta con ese DNI en la plataforma.'
+          : 'No se pudo crear.';
+        results.push({ name, status: 'error', error: message });
       }
     }
     res.json({ results });
@@ -119,7 +344,7 @@ async function startServer() {
   app.get("/api/teacher/students", requireAuth, async (req: any, res) => {
     try {
       const caller = req.dbUser;
-      if (caller.role !== 'teacher' && caller.role !== 'admin') {
+      if (caller.role !== 'teacher' && caller.role !== 'admin' && caller.role !== 'secretary') {
         return res.status(403).json({ error: "Only teachers can view this" });
       }
       const students = await getAllStudents(caller.schoolId);
@@ -130,20 +355,34 @@ async function startServer() {
     }
   });
 
+  // Fields a teacher/admin may change on a student through this route.
+  // Anything else (role, schoolId, uid, email, id, createdAt) is never
+  // read from the body — without this whitelist the old code applied
+  // req.body verbatim, so a crafted request could escalate a student to
+  // admin or move them to a different school.
+  const STUDENT_EDITABLE_FIELDS = [
+    'name', 'avatar', 'dni', 'grade', 'section', 'classroom',
+    'coins', 'tickets', 'progress',
+  ] as const;
+
   app.post("/api/teacher/student/:uid", requireAuth, async (req: any, res) => {
     try {
       const caller = req.dbUser;
-      if (caller.role !== 'teacher' && caller.role !== 'admin') {
+      if (caller.role !== 'teacher' && caller.role !== 'admin' && caller.role !== 'secretary') {
         return res.status(403).json({ error: "Only teachers can modify students" });
       }
       const targetUid = req.params.uid;
       const target = await getUserState(targetUid);
       // Same-school check: without it a teacher could update any uid,
-      // including a student from a different school.
-      if (!target || target.schoolId !== caller.schoolId) {
+      // including a student from a different school. Role check: this
+      // route is for students only, not for editing a fellow teacher/admin.
+      if (!target || target.schoolId !== caller.schoolId || target.role !== 'student') {
         return res.status(404).json({ error: "Student not found" });
       }
-      const updates = req.body;
+      const updates: Record<string, any> = {};
+      for (const field of STUDENT_EDITABLE_FIELDS) {
+        if (field in req.body) updates[field] = req.body[field];
+      }
       const updatedUser = await updateUserState(targetUid, updates);
       res.json(updatedUser);
     } catch (error) {

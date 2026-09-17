@@ -1,5 +1,5 @@
-import { relations } from 'drizzle-orm';
-import { integer, pgTable, serial, text, timestamp, jsonb, boolean } from 'drizzle-orm/pg-core';
+import { relations, sql } from 'drizzle-orm';
+import { integer, pgTable, serial, text, timestamp, jsonb, boolean, uniqueIndex } from 'drizzle-orm/pg-core';
 
 // A tenant: one row per school using the platform. Every school-scoped
 // table (users, and anything added later) carries a schoolId and every
@@ -9,8 +9,15 @@ export const schools = pgTable('schools', {
   id: serial('id').primaryKey(),
   name: text('name').notNull(),
   slug: text('slug').notNull().unique(),
+  // Section labels available to every grade at this school (e.g.
+  // ["A", "B"]). Empty means the school doesn't use sections at all.
+  sections: jsonb('sections').$type<string[]>().default([]),
+  // Full domain the school chose for auto-generated student emails
+  // (e.g. "aloe.com" -> 20265473@aloe.com). Null falls back to
+  // "{slug}.alumno.com" until the school picks one.
+  emailDomain: text('email_domain'),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}).enableRLS();
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -19,7 +26,13 @@ export const users = pgTable('users', {
   email: text('email').notNull(),
   name: text('name'),
   avatar: text('avatar'),
-  role: text('role').default('student'), // 'student' or 'teacher'
+  role: text('role').default('student'), // 'student' | 'teacher' | 'admin'
+  // Student-only enrollment fields. National ID — required for
+  // students, unique per school (catches double-registering the same
+  // person by mistake); null for teacher/admin accounts.
+  dni: text('dni'),
+  grade: text('grade'), // '3ro' | '4to' | '5to'
+  section: text('section'), // one of schools.sections, auto-assigned at creation
   coins: integer('coins').default(0),
   tickets: integer('tickets').default(0),
   progress: integer('progress').default(0),
@@ -42,7 +55,15 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').defaultNow(),
   setupCompleted: boolean('setup_completed').default(false),
   classroom: text('classroom').default(''),
-});
+}, (table) => ({
+  // A DNI identifies one real person platform-wide, not per school — so
+  // this is unique across every school, not scoped to schoolId. Partial:
+  // only applies where dni is set, so teacher/admin rows (dni null)
+  // never collide with each other or with students.
+  dniUnique: uniqueIndex('users_dni_unique')
+    .on(table.dni)
+    .where(sql`${table.dni} is not null`),
+})).enableRLS();
 
 export const schoolsRelations = relations(schools, ({ many }) => ({
   users: many(users),
