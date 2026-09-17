@@ -28,6 +28,7 @@ import { Button, Card, BentoTile, FloatingMathBackground } from './components/UI
 import { ConfettiOverlay } from './components/ConfettiOverlay';
 import { AudioToggle } from './components/AudioToggle';
 import { ColegioLogin } from './components/ColegioLogin';
+import { SchoolRegister } from './components/SchoolRegister';
 
 import { ProgressMap } from './components/ProgressMap';
 import { InitialSetup } from './components/InitialSetup';
@@ -369,6 +370,7 @@ export default function App() {
   const [authUser, setAuthUser] = useState<FirebaseUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [showLoginScreen, setShowLoginScreen] = useState<boolean | null>(null);
+  const [showRegisterScreen, setShowRegisterScreen] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
@@ -1347,7 +1349,9 @@ export default function App() {
   }
 
   if (showLoginScreen) {
-    return <ColegioLogin onLoginSuccess={() => setShowLoginScreen(false)} />;
+    return showRegisterScreen
+      ? <SchoolRegister onBackToLogin={() => setShowRegisterScreen(false)} />
+      : <ColegioLogin onLoginSuccess={() => setShowLoginScreen(false)} onRegisterSchool={() => setShowRegisterScreen(true)} />;
   }
 
   if (profileLoadError) {

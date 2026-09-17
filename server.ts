@@ -34,9 +34,10 @@ function studentEmailDomain(school: { slug: string; emailDomain?: string | null 
   return school?.emailDomain || `${school?.slug || 'colegio'}.alumno.com`;
 }
 
-function isDniConflict(error: any): boolean {
+function isUniqueViolation(error: any): boolean {
   return error?.cause?.code === '23505' || error?.code === '23505';
 }
+const isDniConflict = isUniqueViolation;
 
 // School staff hierarchy: admin (director) > secretary (matrícula) >
 // teacher > student. A secretary can enroll/transfer students — the
@@ -44,6 +45,30 @@ function isDniConflict(error: any): boolean {
 // making that person a full admin — but never creates other staff.
 function canManageEnrollment(role: string): boolean {
   return role === 'admin' || role === 'secretary';
+}
+
+const EMAIL_DOMAIN_REGEX = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// "Colegio Ángeles de Jesús" -> "colegio-angeles-de-jesus". Same shape
+// as the slugs used in src/db/seed.ts, so both paths produce URLs/
+// fallback domains that look the same either way.
+function slugify(name: string): string {
+  const base = name
+    .normalize('NFD').replace(/\p{Mn}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+  return base || 'colegio';
+}
+
+// The school types just an alias ("aloe") or a full domain ("aloe.com");
+// either way we end up with a real-looking domain for student emails.
+function normalizeEmailDomain(raw: string): string {
+  let domain = raw.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^@/, '').replace(/\/.*$/, '');
+  if (domain && !domain.includes('.')) domain += '.com';
+  return domain;
 }
 
 async function startServer() {
@@ -55,7 +80,7 @@ async function startServer() {
   // Database endpoints
   const { requireAuth } = await import('./src/middleware/auth.ts');
   const { getUserState, updateUserState, getAllStudents, createSchoolUser, countStudentsBySection, getUserByDni } = await import('./src/db/users.ts');
-  const { getSchool, updateSchool } = await import('./src/db/schools.ts');
+  const { getSchool, updateSchool, createSchool, getSchoolBySlug, getSchoolByEmailDomain, deleteSchool } = await import('./src/db/schools.ts');
   const { adminAuth } = await import('./src/lib/firebase-admin.ts');
 
   // Section with the fewest students of this grade at this school right
@@ -113,6 +138,116 @@ async function startServer() {
     return { dbUser, tempPassword, email: email! };
   }
 
+  // Appends "-2", "-3"... until the slug is free. A brand-new school
+  // registering itself is the only caller that doesn't already know its
+  // slug is unique (every other slug in the codebase is seeded by hand).
+  async function resolveUniqueSlug(base: string): Promise<string> {
+    let candidate = base;
+    for (let n = 2; await getSchoolBySlug(candidate); n++) {
+      candidate = `${base}-${n}`;
+    }
+    return candidate;
+  }
+
+  // Public: how a new school joins the platform. No auth — there's no
+  // account yet. Creates the school row, the founding admin's Firebase
+  // account (their real contact email, not a generated alias — this is
+  // staff, like any teacher/secretary created later), and their DB user
+  // row, in that order so a failure partway through never leaves a
+  // school with no admin able to log into it: if a later step fails, the
+  // steps already done are unwound (best-effort) before returning.
+  app.post("/api/schools/register", async (req: any, res) => {
+    // Honeypot: a field real users never see or fill (hidden off-screen in
+    // the form). Any value here means a bot filled every field blindly —
+    // reject without hinting why, before touching the DB or Firebase.
+    if (String(req.body?.website || '').trim()) {
+      return res.status(400).json({ error: "No se pudo procesar tu solicitud." });
+    }
+
+    const schoolName = String(req.body?.schoolName || '').trim().slice(0, 200);
+    const emailAliasRaw = String(req.body?.emailAlias || '').trim().slice(0, 100);
+    const contactName = String(req.body?.contactName || '').trim().slice(0, 200);
+    const contactEmail = String(req.body?.contactEmail || '').trim().toLowerCase().slice(0, 200);
+    const contactPhone = String(req.body?.contactPhone || '').trim().slice(0, 30);
+    const ruc = String(req.body?.ruc || '').trim().slice(0, 20);
+    const studentsEstimateRaw = req.body?.studentsEstimate;
+
+    if (!schoolName || !emailAliasRaw || !contactName || !contactEmail || !contactPhone) {
+      return res.status(400).json({ error: "Faltan datos obligatorios." });
+    }
+    if (!EMAIL_REGEX.test(contactEmail)) {
+      return res.status(400).json({ error: "El correo de contacto no es válido." });
+    }
+    const emailDomain = normalizeEmailDomain(emailAliasRaw);
+    if (!EMAIL_DOMAIN_REGEX.test(emailDomain)) {
+      return res.status(400).json({ error: 'El alias de correo no es válido (ej. "aloe" o "aloe.com").' });
+    }
+    let studentsEstimate: number | null = null;
+    if (studentsEstimateRaw !== undefined && studentsEstimateRaw !== null && studentsEstimateRaw !== '') {
+      const n = Number(studentsEstimateRaw);
+      if (!Number.isFinite(n) || n < 0) {
+        return res.status(400).json({ error: "La cantidad de alumnos no es válida." });
+      }
+      studentsEstimate = Math.round(n);
+    }
+
+    if (await getSchoolByEmailDomain(emailDomain)) {
+      return res.status(409).json({ error: "Ese alias de correo ya lo usa otro colegio. Elige otro." });
+    }
+
+    const slug = await resolveUniqueSlug(slugify(schoolName));
+
+    let school;
+    try {
+      school = await createSchool({
+        name: schoolName,
+        slug,
+        emailDomain,
+        sections: [],
+        contactName,
+        contactEmail,
+        contactPhone,
+        ruc: ruc || null,
+        studentsEstimate,
+        plan: 'piloto',
+        status: 'active',
+      });
+    } catch (error: any) {
+      console.error(error);
+      if (isUniqueViolation(error)) {
+        return res.status(409).json({ error: "Ese alias de correo ya lo usa otro colegio. Elige otro." });
+      }
+      return res.status(500).json({ error: "No se pudo registrar el colegio." });
+    }
+
+    const tempPassword = generateTempPassword();
+    let firebaseUser;
+    try {
+      firebaseUser = await adminAuth.createUser({ email: contactEmail, password: tempPassword, displayName: contactName });
+    } catch (error: any) {
+      console.error(error);
+      await deleteSchool(school.id).catch((e) => console.error('Rollback (school) falló:', e));
+      if (error?.code === 'auth/email-already-exists') {
+        return res.status(409).json({ error: "Ya existe una cuenta con ese correo de contacto." });
+      }
+      return res.status(500).json({ error: "No se pudo crear la cuenta del administrador." });
+    }
+
+    let dbUser;
+    try {
+      dbUser = await createSchoolUser({
+        uid: firebaseUser.uid, email: contactEmail, name: contactName, schoolId: school.id, role: 'admin',
+      });
+    } catch (error) {
+      console.error(error);
+      await adminAuth.deleteUser(firebaseUser.uid).catch((e) => console.error('Rollback (firebase user) falló:', e));
+      await deleteSchool(school.id).catch((e) => console.error('Rollback (school) falló:', e));
+      return res.status(500).json({ error: "No se pudo crear la cuenta del administrador." });
+    }
+
+    res.json({ school, admin: dbUser, tempPassword });
+  });
+
   app.get("/api/user", requireAuth, async (req: any, res) => {
     res.json(req.dbUser);
   });
@@ -142,7 +277,7 @@ async function startServer() {
     const updates: { emailDomain?: string | null; sections?: string[] } = {};
     if (typeof req.body?.emailDomain === 'string') {
       const domain = req.body.emailDomain.trim().toLowerCase();
-      if (domain && !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) {
+      if (domain && !EMAIL_DOMAIN_REGEX.test(domain)) {
         return res.status(400).json({ error: 'El dominio no parece válido (ej. "aloe.com").' });
       }
       updates.emailDomain = domain || null;
@@ -159,8 +294,11 @@ async function startServer() {
     try {
       const updated = await updateSchool(caller.schoolId, updates);
       res.json(updated);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
+      if (isUniqueViolation(error)) {
+        return res.status(409).json({ error: "Ese dominio de correo ya lo usa otro colegio en la plataforma." });
+      }
       res.status(500).json({ error: "No se pudo actualizar la configuración." });
     }
   });

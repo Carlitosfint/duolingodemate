@@ -6,7 +6,7 @@ import { Hash, Sparkles as Sparkles2, Check as Check2,
   Lock, Unlock, Package, Flag, Ghost, Orbit, Building, Gift, Settings,
   ChevronLeft, Check, AlertCircle, ShieldAlert, BadgeCent,
   Trophy, Banknote, Landmark, ShieldCheck, Map as MapIcon, BookX, Diamond,
-  Mail, Eye, EyeOff
+  Mail, Eye, EyeOff, Phone, CreditCard, Rocket
 } from 'lucide-react';
 
 export const Icon = ({ name, className, size = 24 }: { name: string, className?: string, size?: number }) => {
@@ -346,6 +346,10 @@ export const Icon = ({ name, className, size = 24 }: { name: string, className?:
     case 'mail': return <Mail {...iconProps} />;
     case 'eye': return <Eye {...iconProps} />;
     case 'eye-off': return <EyeOff {...iconProps} />;
+    case 'building': return <Building {...iconProps} />;
+    case 'phone': return <Phone {...iconProps} />;
+    case 'card': return <CreditCard {...iconProps} />;
+    case 'rocket': return <Rocket {...iconProps} />;
     default: return <Sparkles2 {...iconProps} />;
   }
 };
