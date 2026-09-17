@@ -13,7 +13,7 @@ export const schools = pgTable('schools', {
   // ["A", "B"]). Empty means the school doesn't use sections at all.
   sections: jsonb('sections').$type<string[]>().default([]),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}).enableRLS();
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -57,7 +57,7 @@ export const users = pgTable('users', {
   schoolDniUnique: uniqueIndex('users_school_id_dni_unique')
     .on(table.schoolId, table.dni)
     .where(sql`${table.dni} is not null`),
-}));
+})).enableRLS();
 
 export const schoolsRelations = relations(schools, ({ many }) => ({
   users: many(users),
