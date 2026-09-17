@@ -239,6 +239,16 @@ async function startServer() {
     }
   });
 
+  // Fields a teacher/admin may change on a student through this route.
+  // Anything else (role, schoolId, uid, email, id, createdAt) is never
+  // read from the body — without this whitelist the old code applied
+  // req.body verbatim, so a crafted request could escalate a student to
+  // admin or move them to a different school.
+  const STUDENT_EDITABLE_FIELDS = [
+    'name', 'avatar', 'dni', 'grade', 'section', 'classroom',
+    'coins', 'tickets', 'progress',
+  ] as const;
+
   app.post("/api/teacher/student/:uid", requireAuth, async (req: any, res) => {
     try {
       const caller = req.dbUser;
@@ -248,11 +258,15 @@ async function startServer() {
       const targetUid = req.params.uid;
       const target = await getUserState(targetUid);
       // Same-school check: without it a teacher could update any uid,
-      // including a student from a different school.
-      if (!target || target.schoolId !== caller.schoolId) {
+      // including a student from a different school. Role check: this
+      // route is for students only, not for editing a fellow teacher/admin.
+      if (!target || target.schoolId !== caller.schoolId || target.role !== 'student') {
         return res.status(404).json({ error: "Student not found" });
       }
-      const updates = req.body;
+      const updates: Record<string, any> = {};
+      for (const field of STUDENT_EDITABLE_FIELDS) {
+        if (field in req.body) updates[field] = req.body[field];
+      }
       const updatedUser = await updateUserState(targetUid, updates);
       res.json(updatedUser);
     } catch (error) {
