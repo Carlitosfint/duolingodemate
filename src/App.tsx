@@ -158,56 +158,58 @@ export const PageReveal: React.FC<{ children: React.ReactNode, className?: strin
   });
 
   React.useEffect(() => {
-    if (!isPresent) { 
+    if (!isPresent) {
        // Exiting component: wait until entering animation completes
-       const timer = setTimeout(() => { 
-         safeToRemove && safeToRemove(); 
-       }, 3500); 
+       const timer = setTimeout(() => {
+         safeToRemove && safeToRemove();
+       }, 1000);
        return () => clearTimeout(timer);
     }
-    
-    // Entering component animation sequence:
-    
+
+    // Entering component animation sequence. This plays on every map<->exercise
+    // switch, so it's tuned for ~4x faster than the original cut while keeping
+    // the same lens choreography (open old, close, open new, expand, settle).
+
     // Phase 1: Lens opens showing old page. Starts immediately alongside the circles.
     playTransitionSound();
     circleRadii.forEach((r, i) => {
-      animate(r, radii.base - i * radii.step, { 
-         duration: 0.4, 
-         delay: i * 0.05, 
-         ease: [0.34, 1.56, 0.64, 1] 
+      animate(r, radii.base - i * radii.step, {
+         duration: 0.2,
+         delay: i * 0.03,
+         ease: [0.34, 1.56, 0.64, 1]
        });
     });
-    animate(holeRadius, 50, { duration: 0.4, ease: "easeInOut" }); // 50px = ~12vmin
-    
-    // Phase 2: Lens closes (+1.5s delay means it closes at 1900ms)
+    animate(holeRadius, 50, { duration: 0.2, ease: "easeInOut" }); // 50px = ~12vmin
+
+    // Phase 2: Lens closes
     const t2 = setTimeout(() => {
-      animate(holeRadius, 0, { duration: 0.3, ease: "easeInOut" });
-    }, 1900); 
-    
+      animate(holeRadius, 0, { duration: 0.15, ease: "easeInOut" });
+    }, 450);
+
     // Phase 3: Lens opens showing NEW page
     const t3 = setTimeout(() => {
       playRevealSound();
-      animate(holeRadius, 50, { duration: 0.3, ease: "easeInOut" });
-      animate(pageRadius, 50, { duration: 0.3, ease: "easeInOut" });
-    }, 2200); 
-    
+      animate(holeRadius, 50, { duration: 0.15, ease: "easeInOut" });
+      animate(pageRadius, 50, { duration: 0.15, ease: "easeInOut" });
+    }, 520);
+
     // Phase 4: Expand to full screen
     const t4 = setTimeout(() => {
       setPhase(4);
       const maxR = Math.max(window.innerWidth, window.innerHeight) * 1.5;
-      
+
       circleRadii.forEach((r) => {
-        animate(r, maxR, { duration: 0.6, ease: [0.64, 0, 0.78, 0] });
+        animate(r, maxR, { duration: 0.25, ease: [0.64, 0, 0.78, 0] });
       });
-      animate(holeRadius, maxR, { duration: 0.6, ease: [0.64, 0, 0.78, 0] });
-      animate(pageRadius, maxR, { duration: 0.6, ease: [0.64, 0, 0.78, 0] });
-    }, 2600); 
+      animate(holeRadius, maxR, { duration: 0.25, ease: [0.64, 0, 0.78, 0] });
+      animate(pageRadius, maxR, { duration: 0.25, ease: [0.64, 0, 0.78, 0] });
+    }, 620);
 
     // Phase 5: Clean up, make interactive
     const t5 = setTimeout(() => {
       setPhase(5);
-    }, 3200); 
-        
+    }, 900);
+
     return () => { clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); clearTimeout(t5); };
   }, [isPresent, safeToRemove, holeRadius, pageRadius, radii, ...circleRadii]);
 
@@ -220,7 +222,7 @@ export const PageReveal: React.FC<{ children: React.ReactNode, className?: strin
     <motion.div 
       className={`fixed inset-0 flex flex-col ${phase >= 5 ? '' : 'overflow-hidden pointer-events-none'}`}
       style={{ zIndex: currentZ }}
-      exit={{ opacity: 1, transition: { duration: 3.5 } }}
+      exit={{ opacity: 1, transition: { duration: 1 } }}
     >
       {/* 5 Circles with Hole Mask */}
       {phase < 5 && isPresent && (
