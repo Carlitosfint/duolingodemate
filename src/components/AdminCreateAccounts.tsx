@@ -12,7 +12,9 @@ const authedFetch = async (url: string, options: RequestInit = {}) => {
   });
 };
 
-export const AdminCreateAccounts: React.FC<{ canCreateTeachers: boolean }> = ({ canCreateTeachers }) => {
+// Only rendered for admins — registering accounts isn't a teacher duty;
+// an admin who wants to delegate it creates another admin account.
+export const AdminCreateAccounts: React.FC = () => {
   const [mode, setMode] = useState<'individual' | 'bulk'>('individual');
 
   const [name, setName] = useState('');
@@ -140,20 +142,18 @@ export const AdminCreateAccounts: React.FC<{ canCreateTeachers: boolean }> = ({ 
               />
             </div>
           </div>
-          {canCreateTeachers && (
-            <div>
-              <label className="block text-[11px] text-slate-500 mb-1.5 tracking-widest uppercase font-bold">Rol</label>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value as 'student' | 'teacher' | 'admin')}
-                className="px-3 py-2.5 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-              >
-                <option value="student">Estudiante</option>
-                <option value="teacher">Profesor</option>
-                <option value="admin">Administrador</option>
-              </select>
-            </div>
-          )}
+          <div>
+            <label className="block text-[11px] text-slate-500 mb-1.5 tracking-widest uppercase font-bold">Rol</label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value as 'student' | 'teacher' | 'admin')}
+              className="px-3 py-2.5 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+            >
+              <option value="student">Estudiante</option>
+              <option value="teacher">Profesor</option>
+              <option value="admin">Administrador</option>
+            </select>
+          </div>
           {error && <p className="text-sm font-bold text-red-600">{error}</p>}
           <Button type="submit" color="blue" disabled={loading} className="px-6 py-2.5">
             {loading ? 'Creando...' : 'Crear cuenta'}

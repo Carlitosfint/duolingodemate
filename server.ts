@@ -44,13 +44,14 @@ async function startServer() {
     }
   });
 
-  // Creates one account (student or teacher) inside the caller's own
-  // school. Accounts are never self-registered — an admin/teacher makes
-  // them, so the schoolId always comes from the caller, never the body.
+  // Creates one account (student, teacher or admin) inside the caller's
+  // own school. Accounts are never self-registered — only an admin makes
+  // them (registering students isn't a teacher duty), so the schoolId
+  // always comes from the caller, never the body.
   app.post("/api/admin/users", requireAuth, async (req: any, res) => {
     const caller = req.dbUser;
-    if (caller.role !== 'admin' && caller.role !== 'teacher') {
-      return res.status(403).json({ error: "Solo administradores o profesores pueden crear cuentas." });
+    if (caller.role !== 'admin') {
+      return res.status(403).json({ error: "Solo un administrador puede crear cuentas." });
     }
     const name = String(req.body?.name || '').trim();
     const email = String(req.body?.email || '').trim();
@@ -58,9 +59,6 @@ async function startServer() {
       req.body?.role === 'admin' ? 'admin' : req.body?.role === 'teacher' ? 'teacher' : 'student';
     if (!name || !email) {
       return res.status(400).json({ error: "Nombre y correo son obligatorios." });
-    }
-    if ((requestedRole === 'teacher' || requestedRole === 'admin') && caller.role !== 'admin') {
-      return res.status(403).json({ error: "Solo un administrador puede crear cuentas de profesor o administrador." });
     }
     try {
       const tempPassword = generateTempPassword();
@@ -82,8 +80,8 @@ async function startServer() {
   // created independently so one bad email doesn't fail the whole batch.
   app.post("/api/admin/users/bulk", requireAuth, async (req: any, res) => {
     const caller = req.dbUser;
-    if (caller.role !== 'admin' && caller.role !== 'teacher') {
-      return res.status(403).json({ error: "Solo administradores o profesores pueden crear cuentas." });
+    if (caller.role !== 'admin') {
+      return res.status(403).json({ error: "Solo un administrador puede crear cuentas." });
     }
     const students = req.body?.students;
     if (!Array.isArray(students) || students.length === 0) {

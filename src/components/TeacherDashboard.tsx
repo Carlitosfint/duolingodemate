@@ -60,7 +60,7 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
 
   return (
     <div className="space-y-6">
-      <AdminCreateAccounts canCreateTeachers={currentUserRole === 'admin'} />
+      {currentUserRole === 'admin' && <AdminCreateAccounts />}
 
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-black text-slate-800">Panel de Profesor / Admin</h2>
