@@ -17,24 +17,18 @@ export function generatePlanteoEcuaciones(isGolden: boolean): ProblemData {
     expected = x;
     explanation = `Sea 'x' el número. Planteamos: (x + ${a})² - x² = ${diff}. Resolviendo: x² + ${2*a}x + ${a*a} - x² = ${diff} => ${2*a}x = ${diff - a*a} => x = ${x}.`;
   } else {
-    const p = rnd(10, 20); 
-    const area = rnd(20, 40); 
-    const sum = rnd(10, 20); 
-    const diff_sq = rnd(1, 5) * 2; 
-    
-    const x_val = (sum + diff_sq) / 2;
-    const y_val = sum - x_val;
-    if (Number.isInteger(x_val) && x_val > 0 && y_val > 0) {
-      const p_real = sum * 2;
-      const area_real = x_val * y_val;
-      intro = `Un terreno rectangular tiene un perímetro de ${p_real} m y un área de ${area_real} m². ¿Cuál es la longitud de su lado mayor en metros?`;
-      expected = Math.max(x_val, y_val);
-      explanation = `Sean x e y los lados. Perímetro = 2(x+y) = ${p_real} => x+y = ${sum}. Área = x·y = ${area_real}. Resolviendo el sistema (buscando dos números que sumen ${sum} y multipliquen ${area_real}), los lados son ${x_val} y ${y_val}. El mayor es ${expected}.`;
-    } else {
-      intro = `Si a un número se le multiplica por 3, se le resta 5, y al resultado se le eleva al cuadrado, se obtiene 64. Si el número es positivo, ¿cuál es?`;
-      expected = 3;
-      explanation = `Sea x el número. (3x - 5)² = 64. Como es positivo, 3x - 5 = 8 => 3x = 13 (no entero). Fallback estático: Sea x. (3x - 5)² = 16 => 3x - 5 = 4 => 3x = 9 => x = 3.`;
-    }
+    // Pick the two sides directly so they're always positive integers with
+    // a well-defined larger side, instead of deriving them from a sum/
+    // difference-of-squares pair that isn't always an integer solution.
+    const x_val = rnd(6, 15);
+    const y_val = rnd(4, x_val - 1);
+    const sum = x_val + y_val;
+    const p_real = sum * 2;
+    const area_real = x_val * y_val;
+
+    intro = `Un terreno rectangular tiene un perímetro de ${p_real} m y un área de ${area_real} m². ¿Cuál es la longitud de su lado mayor en metros?`;
+    expected = x_val;
+    explanation = `Sean x e y los lados. Perímetro = 2(x+y) = ${p_real} => x+y = ${sum}. Área = x·y = ${area_real}. Resolviendo el sistema (buscando dos números que sumen ${sum} y multipliquen ${area_real}), los lados son ${x_val} y ${y_val}. El mayor es ${expected}.`;
   }
 
   if (isGolden) {
@@ -67,16 +61,18 @@ export function generateEdades(isGolden: boolean): ProblemData {
     const tu_presente = yo_pasado; 
     const yo_presente = tu_presente + diferencia;
     
-    intro = `Yo tengo ${yo_presente} años, que es el doble de la edad que tú tenías. Cuando tú tengas mi edad actual, ¿cuál será la suma de nuestras edades?`;
+    intro = `Cuando tú tenías ${tu_pasado} años, yo tenía ${yo_pasado}. Hoy yo tengo ${yo_presente} años. Cuando tú tengas mi edad actual, ¿cuál será la suma de nuestras edades?`;
     const tu_futuro = yo_presente;
     const yo_futuro = tu_futuro + diferencia;
     expected = yo_futuro + tu_futuro;
-    explanation = `Yo tengo ${yo_presente}. Cuando tú tenías la mitad (${yo_presente/2}), mi edad era ${yo_presente - diferencia}. La diferencia de edades es constante (${diferencia}). Cuando tú tengas mi edad (${tu_futuro}), yo tendré ${yo_futuro}. La suma es ${expected}.`;
+    explanation = `La diferencia de edades es constante: ${yo_pasado} - ${tu_pasado} = ${diferencia} años. Cuando tú tengas mi edad actual (${tu_futuro}), yo tendré ${tu_futuro} + ${diferencia} = ${yo_futuro} (la diferencia se mantiene). La suma de nuestras edades será ${tu_futuro} + ${yo_futuro} = ${expected}.`;
   } else if (t === 1) {
     // Tipo 2: E + x = factor * (E - y)
-    const factor = rnd(2, 4); 
-    const E = rnd(15, 30);
-    const y = rnd(3, 8); 
+    const factor = rnd(2, 4);
+    const y = rnd(3, 8);
+    // For factor 2, x = E - 2y can go to 0 or negative for small E; keep it a
+    // real future ("dentro de X años" with X >= 1) by raising E's floor then.
+    const E = factor === 2 ? rnd(Math.max(15, 2 * y + 1), 30) : rnd(15, 30);
     const x = factor * (E - y) - E;
     const factorText = factor === 2 ? 'el doble' : factor === 3 ? 'el triple' : 'el cuádruple';
     

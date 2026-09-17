@@ -168,7 +168,7 @@ export function generateSuperficiesCirculares(isGolden: boolean): ProblemData {
     const r = rnd(2, 6) * 2;
     const angles = [30, 45, 60, 90, 120];
     const angle = angles[rnd(0, angles.length - 1)];
-    const S_pi = (r * r * angle) / 360;
+    const S_pi = Math.round(((r * r * angle) / 360) * 100) / 100;
     
     intro = `Calcula el área de un sector circular cuyo radio mide ${r} cm y su ángulo central es ${angle}°. Da tu respuesta dividida entre π (pi).`;
     expected = S_pi;
