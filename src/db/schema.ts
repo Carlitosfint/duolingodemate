@@ -52,10 +52,12 @@ export const users = pgTable('users', {
   setupCompleted: boolean('setup_completed').default(false),
   classroom: text('classroom').default(''),
 }, (table) => ({
-  // Partial index: only applies where dni is set, so teacher/admin rows
-  // (dni null) never collide with each other or with students.
-  schoolDniUnique: uniqueIndex('users_school_id_dni_unique')
-    .on(table.schoolId, table.dni)
+  // A DNI identifies one real person platform-wide, not per school — so
+  // this is unique across every school, not scoped to schoolId. Partial:
+  // only applies where dni is set, so teacher/admin rows (dni null)
+  // never collide with each other or with students.
+  dniUnique: uniqueIndex('users_dni_unique')
+    .on(table.dni)
     .where(sql`${table.dni} is not null`),
 })).enableRLS();
 

@@ -150,7 +150,7 @@ async function startServer() {
           return res.status(409).json({ error: "Ya existe una cuenta con ese correo." });
         }
         if (isDniConflict(error)) {
-          return res.status(409).json({ error: "Ya existe un alumno con ese DNI en este colegio." });
+          return res.status(409).json({ error: "Ya existe una cuenta con ese DNI en la plataforma." });
         }
         return res.status(500).json({ error: "No se pudo crear la cuenta." });
       }
@@ -217,7 +217,7 @@ async function startServer() {
         const message = error?.code === 'auth/email-already-exists'
           ? 'Ya existe una cuenta con ese correo.'
           : isDniConflict(error)
-          ? 'Ya existe un alumno con ese DNI en este colegio.'
+          ? 'Ya existe una cuenta con ese DNI en la plataforma.'
           : 'No se pudo crear.';
         results.push({ name, status: 'error', error: message });
       }
