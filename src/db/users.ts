@@ -59,6 +59,13 @@ export async function getUserState(uid: string) {
   return result[0];
 }
 
+// DNI is unique platform-wide, so this is the lookup used to detect a
+// student transferring in from another school on this same platform.
+export async function getUserByDni(dni: string) {
+  const result = await db.select().from(users).where(eq(users.dni, dni));
+  return result[0];
+}
+
 export async function getAllStudents(schoolId: number) {
   const result = await db.select().from(users)
     .where(and(eq(users.role, 'student'), eq(users.schoolId, schoolId)));

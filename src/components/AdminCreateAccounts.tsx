@@ -31,6 +31,8 @@ export const AdminCreateAccounts: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CreateResult | null>(null);
   const [error, setError] = useState('');
+  const [dniConflict, setDniConflict] = useState(false);
+  const [transferring, setTransferring] = useState(false);
 
   const [bulkGrade, setBulkGrade] = useState<Grade>('3ro');
   const [bulkText, setBulkText] = useState('');
@@ -48,6 +50,7 @@ export const AdminCreateAccounts: React.FC = () => {
   const handleCreateOne = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setDniConflict(false);
     setResult(null);
     setLoading(true);
     try {
@@ -59,6 +62,7 @@ export const AdminCreateAccounts: React.FC = () => {
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || 'No se pudo crear la cuenta.');
+        if (data.code === 'dni_exists') setDniConflict(true);
       } else {
         setResult({ name: data.user.name, email: data.user.email, tempPassword: data.tempPassword, status: 'ok' });
         if (role === 'student') resetStudentFields();
@@ -68,6 +72,31 @@ export const AdminCreateAccounts: React.FC = () => {
       setError('Error de conexión. Revisa tu internet.');
     }
     setLoading(false);
+  };
+
+  // A DNI conflict during creation usually means the student already
+  // has an account at another school on the platform and is
+  // transferring in — move their existing row instead of duplicating it.
+  const handleTransfer = async () => {
+    setTransferring(true);
+    setError('');
+    try {
+      const res = await authedFetch('/api/admin/users/transfer', {
+        method: 'POST',
+        body: JSON.stringify({ dni, grade }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'No se pudo transferir al alumno.');
+      } else {
+        setResult({ name: data.user.name, email: data.user.email, status: 'ok' });
+        setDniConflict(false);
+        resetStudentFields();
+      }
+    } catch {
+      setError('Error de conexión. Revisa tu internet.');
+    }
+    setTransferring(false);
   };
 
   // One student per line: "Nombre, Apellido, DNI" (correo opcional al final)
@@ -236,6 +265,22 @@ export const AdminCreateAccounts: React.FC = () => {
           )}
 
           {error && <p className="text-sm font-bold text-red-600">{error}</p>}
+          {dniConflict && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-2">
+              <p className="text-sm font-bold text-amber-700">
+                ¿Es un alumno que se transfiere de otro colegio? Puedes moverlo a este colegio en vez de crear una cuenta nueva.
+              </p>
+              <Button
+                type="button"
+                color="yellow"
+                disabled={transferring}
+                onClick={handleTransfer}
+                className="px-4 py-2 text-sm"
+              >
+                {transferring ? 'Transfiriendo...' : 'Transferir a mi colegio'}
+              </Button>
+            </div>
+          )}
           <Button type="submit" color="blue" disabled={loading} className="px-6 py-2.5">
             {loading ? 'Creando...' : 'Crear cuenta'}
           </Button>
@@ -276,14 +321,22 @@ export const AdminCreateAccounts: React.FC = () => {
 
       {result && (
         <div className="w-full p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
-          <p className="font-black text-emerald-700 text-sm mb-1">Cuenta creada: {result.name}</p>
-          <p className="text-sm text-emerald-800">
-            Correo: <span className="font-mono font-bold">{result.email}</span> — Contraseña temporal:{' '}
-            <span className="font-mono font-bold">{result.tempPassword}</span>
-          </p>
-          <p className="text-xs text-emerald-600 mt-1">
-            Anota esta contraseña ahora, no se volverá a mostrar. Compártela con la persona; puede cambiarla luego desde "¿Olvidaste tu contraseña?" en el login.
-          </p>
+          {result.tempPassword ? (
+            <>
+              <p className="font-black text-emerald-700 text-sm mb-1">Cuenta creada: {result.name}</p>
+              <p className="text-sm text-emerald-800">
+                Correo: <span className="font-mono font-bold">{result.email}</span> — Contraseña temporal:{' '}
+                <span className="font-mono font-bold">{result.tempPassword}</span>
+              </p>
+              <p className="text-xs text-emerald-600 mt-1">
+                Anota esta contraseña ahora, no se volverá a mostrar. Compártela con la persona; puede cambiarla luego desde "¿Olvidaste tu contraseña?" en el login.
+              </p>
+            </>
+          ) : (
+            <p className="font-black text-emerald-700 text-sm">
+              {result.name} fue transferido a tu colegio. Su correo y contraseña no cambiaron.
+            </p>
+          )}
         </div>
       )}
 

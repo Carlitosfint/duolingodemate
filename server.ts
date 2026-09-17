@@ -49,7 +49,7 @@ async function startServer() {
 
   // Database endpoints
   const { requireAuth } = await import('./src/middleware/auth.ts');
-  const { getUserState, updateUserState, getAllStudents, createSchoolUser, countStudentsBySection } = await import('./src/db/users.ts');
+  const { getUserState, updateUserState, getAllStudents, createSchoolUser, countStudentsBySection, getUserByDni } = await import('./src/db/users.ts');
   const { getSchool } = await import('./src/db/schools.ts');
   const { adminAuth } = await import('./src/lib/firebase-admin.ts');
 
@@ -150,7 +150,10 @@ async function startServer() {
           return res.status(409).json({ error: "Ya existe una cuenta con ese correo." });
         }
         if (isDniConflict(error)) {
-          return res.status(409).json({ error: "Ya existe una cuenta con ese DNI en la plataforma." });
+          return res.status(409).json({
+            error: "Ya existe una cuenta con ese DNI en la plataforma.",
+            code: "dni_exists",
+          });
         }
         return res.status(500).json({ error: "No se pudo crear la cuenta." });
       }
@@ -175,6 +178,47 @@ async function startServer() {
         return res.status(409).json({ error: "Ya existe una cuenta con ese correo." });
       }
       res.status(500).json({ error: "No se pudo crear la cuenta." });
+    }
+  });
+
+  // Moves an existing student (found by DNI, unique platform-wide) into
+  // the caller's school — the path for a legitimate transfer from
+  // another school on this platform, instead of rejecting as a
+  // duplicate. Keeps uid/email/progress; only the enrollment (school,
+  // grade, section) changes.
+  app.post("/api/admin/users/transfer", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    if (caller.role !== 'admin') {
+      return res.status(403).json({ error: "Solo un administrador puede transferir alumnos." });
+    }
+    const dni = String(req.body?.dni || '').trim();
+    const grade = String(req.body?.grade || '');
+    if (!dni || !grade) {
+      return res.status(400).json({ error: "DNI y grado son obligatorios." });
+    }
+    if (!VALID_GRADES.includes(grade)) {
+      return res.status(400).json({ error: "Grado inválido." });
+    }
+    try {
+      const existing = await getUserByDni(dni);
+      if (!existing || existing.role !== 'student') {
+        return res.status(404).json({ error: "No existe un alumno con ese DNI." });
+      }
+      if (existing.schoolId === caller.schoolId) {
+        return res.status(400).json({ error: "Ese DNI ya pertenece a un alumno de tu propio colegio." });
+      }
+      const school = await getSchool(caller.schoolId);
+      const section = await assignSection(caller.schoolId, grade, school?.sections || []);
+      const updated = await updateUserState(existing.uid, {
+        schoolId: caller.schoolId,
+        grade,
+        section,
+        classroom: section ? `${grade} ${section}` : grade,
+      });
+      res.json({ user: updated });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudo transferir al alumno." });
     }
   });
 
