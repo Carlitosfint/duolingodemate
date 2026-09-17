@@ -78,11 +78,13 @@ const TabTransition: React.FC<{ children: React.ReactNode, type?: string, zIndex
   const [isPresent, safeToRemove] = usePresence();
   
   React.useEffect(() => {
-    if (!isPresent) { 
+    if (!isPresent) {
        playTransitionSound();
-       const timer = setTimeout(() => { safeToRemove && safeToRemove(); }, 1000);
+       // Debe cubrir toda la pantalla antes de desmontar: última barra
+       // termina a los (4*0.05 + 0.4)s = 0.6s, con margen de sobra.
+       const timer = setTimeout(() => { safeToRemove && safeToRemove(); }, 650);
        return () => clearTimeout(timer);
-    } else { 
+    } else {
        playRevealSound();
     }
   }, [isPresent, safeToRemove]);
@@ -99,7 +101,7 @@ const TabTransition: React.FC<{ children: React.ReactNode, type?: string, zIndex
                 key={`blocks-${color}`}
                 initial={{ y: isPresent ? '0%' : '100%' }}
                 animate={{ y: isPresent ? '-100%' : '0%' }}
-                transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: isPresent ? i * 0.08 : (4 - i) * 0.08 }}
+                transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1], delay: isPresent ? i * 0.05 : (4 - i) * 0.05 }}
                 style={{ flex: 1, height: '100%', backgroundColor: color, zIndex: 25 }}
               />
            );
@@ -520,6 +522,13 @@ export default function App() {
   const [showProfile, setShowProfile] = useState(false);
   const [showChallenges, setShowChallenges] = useState(false);
   const [viewMode, setViewMode] = useState<'map' | 'practice' | 'infinite_map' | 'exercise' | 'codice' | 'album' | 'shop' | 'mistakes' | 'profile' | 'teacher' | 'teacher_dash'>('map');
+  const isStaff = user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'secretary';
+
+  // El personal (profesor/secretario/admin) aterriza directo en su panel,
+  // no en el mapa de aventura pensado para alumnos.
+  useEffect(() => {
+    if (isStaff) setViewMode('teacher_dash');
+  }, [user?.role]);
 
     const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [selectedCourse, setSelectedCourse] = useState<'razonamiento' | 'trigonometria' | 'razonamiento_5to' | 'geometria_5to' | null>(null);
@@ -1446,6 +1455,7 @@ export default function App() {
                 <img src="/img/logo_colegio.png" alt="Logo Colegio" className="h-10 w-auto object-contain ml-2 drop-shadow-md" />
               </div>
               <nav className="flex flex-col gap-2 landscape:max-lg:gap-1 z-10 landscape:max-lg:text-sm">
+                 {!isStaff && (<>
                  <button onClick={() => setViewMode('map')} className={`flex items-center gap-4 ${viewMode === 'map' ? 'text-blue-600' : `${currentThemeStyle.textPrimary} hover:bg-slate-100`} font-bold p-3 rounded-2xl transition-all relative`}>
                     {viewMode === 'map' && <motion.div layoutId="nav-pill" className="absolute inset-0 bg-blue-50/80 border-2 border-blue-200 rounded-2xl z-0" transition={{ type: 'spring', stiffness: 300, damping: 30 }} />}
                     <Icon name="home" className="relative z-10" /> <span className="relative z-10">Aprender</span>
@@ -1462,11 +1472,12 @@ export default function App() {
                     {viewMode === 'shop' && <motion.div layoutId="nav-pill" className="absolute inset-0 bg-blue-50/80 border-2 border-blue-200 rounded-2xl z-0" transition={{ type: 'spring', stiffness: 300, damping: 30 }} />}
                     <Icon name="store" className="relative z-10" /> <span className="relative z-10">Tienda</span>
                  </button>
+                 </>)}
                  <button onClick={() => setViewMode('profile')} className={`flex items-center gap-4 ${viewMode === 'profile' ? 'text-blue-600' : `${currentThemeStyle.textPrimary} hover:bg-slate-100`} font-bold p-3 rounded-2xl transition-all relative`}>
                     {viewMode === 'profile' && <motion.div layoutId="nav-pill" className="absolute inset-0 bg-blue-50/80 border-2 border-blue-200 rounded-2xl z-0" transition={{ type: 'spring', stiffness: 300, damping: 30 }} />}
                     <Icon name="user" className="relative z-10" /> <span className="relative z-10">Perfil</span>
                  </button>
-                 {(user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'secretary') && (
+                 {isStaff && (
                    <button onClick={() => setViewMode('teacher_dash')} className={`flex items-center gap-4 ${viewMode === 'teacher_dash' ? 'text-blue-600' : `${currentThemeStyle.textPrimary} hover:bg-slate-100`} font-bold p-3 rounded-2xl transition-all relative`}>
                       {viewMode === 'teacher_dash' && <motion.div layoutId="nav-pill" className="absolute inset-0 bg-blue-50/80 border-2 border-blue-200 rounded-2xl z-0" transition={{ type: 'spring', stiffness: 300, damping: 30 }} />}
                       <Icon name="users" className="relative z-10" /> <span className="relative z-10">Alumnos</span>
@@ -2365,6 +2376,7 @@ export default function App() {
           transition={{ duration: 0.5, delay: 3.0, ease: "easeOut" }}
           className="nav-sidebar lg:hidden landscape:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t-2 border-slate-200 p-2 z-[100] flex justify-around items-center pb-safe"
         >
+          {!isStaff && (<>
           <button onClick={() => setViewMode('map')} className={`p-2 rounded-xl flex flex-col items-center gap-1 ${viewMode === 'map' ? 'text-blue-500' : 'text-slate-400'}`}>
             <Icon name="home" />
             <span className="text-[9px] font-black uppercase tracking-wider">Aprender</span>
@@ -2382,12 +2394,13 @@ export default function App() {
             <Icon name="store" />
             <span className="text-[9px] font-black uppercase tracking-wider">Tienda</span>
           </button>
+          </>)}
           <button onClick={() => setViewMode('profile')} className={`p-2 rounded-xl flex flex-col items-center gap-1 ${viewMode === 'profile' ? 'text-blue-500' : 'text-slate-400'}`}>
             <Icon name="user" />
             <span className="text-[9px] font-black uppercase tracking-wider">Perfil</span>
           </button>
 
-          {(user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'secretary') && (
+          {isStaff && (
             <button onClick={() => setViewMode('teacher_dash')} className={`p-2 rounded-xl flex flex-col items-center gap-1 ${viewMode === 'teacher_dash' ? 'text-blue-500' : 'text-slate-400'}`}>
               <Icon name="users" />
               <span className="text-[9px] font-black uppercase tracking-wider">Alumnos</span>
