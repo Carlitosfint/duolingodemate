@@ -16,6 +16,31 @@ function generateTempPassword(): string {
     .join("");
 }
 
+const VALID_GRADES = ['3ro', '4to', '5to'];
+
+function normalizeNamePart(value: string): string {
+  return (
+    value
+      .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip accents
+      .trim()
+      .split(/\s+/)[0] // first word only
+      ?.toLowerCase()
+      .replace(/[^a-z0-9]/g, '') || ''
+  );
+}
+
+// "Marian Martinez" -> marianmar@alumno.com. On a collision, retried
+// once with the DNI's last 4 digits appended, which is always unique.
+function generateStudentEmail(firstName: string, lastName: string, dni: string, withDniSuffix = false): string {
+  const base = normalizeNamePart(firstName) + normalizeNamePart(lastName).slice(0, 3);
+  const local = withDniSuffix ? base + dni.replace(/\D/g, '').slice(-4) : base;
+  return `${local}@alumno.com`;
+}
+
+function isDniConflict(error: any): boolean {
+  return error?.cause?.code === '23505' || error?.code === '23505';
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -24,8 +49,54 @@ async function startServer() {
 
   // Database endpoints
   const { requireAuth } = await import('./src/middleware/auth.ts');
-  const { getUserState, updateUserState, getAllStudents, createSchoolUser } = await import('./src/db/users.ts');
+  const { getUserState, updateUserState, getAllStudents, createSchoolUser, countStudentsBySection } = await import('./src/db/users.ts');
+  const { getSchool } = await import('./src/db/schools.ts');
   const { adminAuth } = await import('./src/lib/firebase-admin.ts');
+
+  // Section with the fewest students of this grade at this school right
+  // now — keeps sections balanced no matter what order students enroll
+  // in. Returns null if the school doesn't use sections.
+  async function assignSection(schoolId: number, grade: string, sections: string[]): Promise<string | null> {
+    if (!sections || sections.length === 0) return null;
+    const counts = await countStudentsBySection(schoolId, grade);
+    const countBySection = new Map(counts.map((c) => [c.section, c.count]));
+    let best = sections[0];
+    let bestCount = countBySection.get(best) ?? 0;
+    for (const s of sections) {
+      const c = countBySection.get(s) ?? 0;
+      if (c < bestCount) { best = s; bestCount = c; }
+    }
+    return best;
+  }
+
+  async function createStudentAccount(params: {
+    schoolId: number; firstName: string; lastName: string; dni: string; grade: string; customEmail: string;
+  }) {
+    const { schoolId, firstName, lastName, dni, grade, customEmail } = params;
+    const name = `${firstName} ${lastName}`;
+    const school = await getSchool(schoolId);
+    const section = await assignSection(schoolId, grade, school?.sections || []);
+    const tempPassword = generateTempPassword();
+
+    let email = customEmail || generateStudentEmail(firstName, lastName, dni);
+    let firebaseUser;
+    try {
+      firebaseUser = await adminAuth.createUser({ email, password: tempPassword, displayName: name });
+    } catch (err: any) {
+      if (!customEmail && err?.code === 'auth/email-already-exists') {
+        email = generateStudentEmail(firstName, lastName, dni, true);
+        firebaseUser = await adminAuth.createUser({ email, password: tempPassword, displayName: name });
+      } else {
+        throw err;
+      }
+    }
+
+    const dbUser = await createSchoolUser({
+      uid: firebaseUser.uid, email, name, schoolId, role: 'student',
+      dni, grade, section, classroom: section ? `${grade} ${section}` : grade,
+    });
+    return { dbUser, tempPassword, email };
+  }
 
   app.get("/api/user", requireAuth, async (req: any, res) => {
     res.json(req.dbUser);
@@ -53,10 +124,41 @@ async function startServer() {
     if (caller.role !== 'admin') {
       return res.status(403).json({ error: "Solo un administrador puede crear cuentas." });
     }
-    const name = String(req.body?.name || '').trim();
-    const email = String(req.body?.email || '').trim();
     const requestedRole =
       req.body?.role === 'admin' ? 'admin' : req.body?.role === 'teacher' ? 'teacher' : 'student';
+
+    if (requestedRole === 'student') {
+      const firstName = String(req.body?.firstName || '').trim();
+      const lastName = String(req.body?.lastName || '').trim();
+      const dni = String(req.body?.dni || '').trim();
+      const grade = String(req.body?.grade || '');
+      const customEmail = String(req.body?.email || '').trim();
+      if (!firstName || !lastName || !dni || !grade) {
+        return res.status(400).json({ error: "Nombre, apellido, DNI y grado son obligatorios." });
+      }
+      if (!VALID_GRADES.includes(grade)) {
+        return res.status(400).json({ error: "Grado inválido." });
+      }
+      try {
+        const { dbUser, tempPassword } = await createStudentAccount({
+          schoolId: caller.schoolId, firstName, lastName, dni, grade, customEmail,
+        });
+        return res.json({ user: dbUser, tempPassword });
+      } catch (error: any) {
+        console.error(error);
+        if (error?.code === 'auth/email-already-exists') {
+          return res.status(409).json({ error: "Ya existe una cuenta con ese correo." });
+        }
+        if (isDniConflict(error)) {
+          return res.status(409).json({ error: "Ya existe un alumno con ese DNI en este colegio." });
+        }
+        return res.status(500).json({ error: "No se pudo crear la cuenta." });
+      }
+    }
+
+    // Teacher / admin: simpler shape, no enrollment fields.
+    const name = String(req.body?.name || '').trim();
+    const email = String(req.body?.email || '').trim();
     if (!name || !email) {
       return res.status(400).json({ error: "Nombre y correo son obligatorios." });
     }
@@ -83,6 +185,10 @@ async function startServer() {
     if (caller.role !== 'admin') {
       return res.status(403).json({ error: "Solo un administrador puede crear cuentas." });
     }
+    const grade = String(req.body?.grade || '');
+    if (!VALID_GRADES.includes(grade)) {
+      return res.status(400).json({ error: "Selecciona el grado de esta carga." });
+    }
     const students = req.body?.students;
     if (!Array.isArray(students) || students.length === 0) {
       return res.status(400).json({ error: "Envía al menos un alumno." });
@@ -93,22 +199,27 @@ async function startServer() {
 
     const results = [];
     for (const raw of students) {
-      const name = String(raw?.name || '').trim();
-      const email = String(raw?.email || '').trim();
-      if (!name || !email) {
-        results.push({ name, email, status: 'error', error: 'Falta nombre o correo.' });
+      const firstName = String(raw?.firstName || '').trim();
+      const lastName = String(raw?.lastName || '').trim();
+      const dni = String(raw?.dni || '').trim();
+      const customEmail = String(raw?.email || '').trim();
+      const name = `${firstName} ${lastName}`.trim();
+      if (!firstName || !lastName || !dni) {
+        results.push({ name, status: 'error', error: 'Falta nombre, apellido o DNI.' });
         continue;
       }
       try {
-        const tempPassword = generateTempPassword();
-        const firebaseUser = await adminAuth.createUser({ email, password: tempPassword, displayName: name });
-        await createSchoolUser({ uid: firebaseUser.uid, email, name, schoolId: caller.schoolId, role: 'student' });
+        const { tempPassword, email } = await createStudentAccount({
+          schoolId: caller.schoolId, firstName, lastName, dni, grade, customEmail,
+        });
         results.push({ name, email, tempPassword, status: 'ok' });
       } catch (error: any) {
-        results.push({
-          name, email, status: 'error',
-          error: error?.code === 'auth/email-already-exists' ? 'Ya existe una cuenta con ese correo.' : 'No se pudo crear.',
-        });
+        const message = error?.code === 'auth/email-already-exists'
+          ? 'Ya existe una cuenta con ese correo.'
+          : isDniConflict(error)
+          ? 'Ya existe un alumno con ese DNI en este colegio.'
+          : 'No se pudo crear.';
+        results.push({ name, status: 'error', error: message });
       }
     }
     res.json({ results });

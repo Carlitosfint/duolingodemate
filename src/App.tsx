@@ -331,9 +331,9 @@ export default function App() {
     return u?.progress || 0;
   };
 
-  const handleInitialSetupComplete = async (data: { name: string; avatar: string; grade?: '3ro' | '4to' | '5to' }) => {
+  const handleInitialSetupComplete = async (data: { name: string; avatar: string }) => {
     if (user) {
-      // role is never set here — it's fixed server-side at account creation.
+      // role/grade are never set here — both are fixed server-side at enrollment.
       const newUser = { ...user, ...data, setupCompleted: true };
       setUser(newUser);
       setShowWelcomeBonus(true);
@@ -411,6 +411,7 @@ export default function App() {
           progress: dbUser.progress ?? 0,
           setupCompleted: dbUser.setupCompleted ?? false,
           role: dbUser.role || 'student',
+          grade: dbUser.grade || undefined,
           courseProgress: dbUser.courseProgress || {},
           classroom: dbUser.classroom || '',
         });
@@ -1355,7 +1356,7 @@ export default function App() {
     <>
       <AnimatePresence>
         {user && !user.setupCompleted && (
-          <InitialSetup initialName={user.name} role={user.role === 'teacher' || user.role === 'admin' ? 'teacher' : 'student'} onComplete={handleInitialSetupComplete} />
+          <InitialSetup initialName={user.name} onComplete={handleInitialSetupComplete} />
         )}
       </AnimatePresence>
       <div className={`min-h-screen w-full transition-all duration-500 p-4 pb-16 font-sans select-none relative overflow-x-hidden ${currentThemeStyle.bgClass}`}>
