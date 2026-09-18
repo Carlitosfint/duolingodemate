@@ -312,12 +312,43 @@ async function startServer() {
     }
   });
 
+  // The game runs in the browser, so these numbers arrive from the client.
+  // They're clamped rather than trusted verbatim: a student poking at the
+  // endpoint can still be wrong, but not absurd (negative coins, progress
+  // past the end of the map, a million tickets). Enrollment fields — role,
+  // schoolId, dni, grade, section, email — are never read from the body, so
+  // this route can't be used to change who you are or what school you're in.
+  const MAX_CURRENCY = 10_000_000;
+  const MAX_PROGRESS = 100;
+  const clampInt = (value: any, max: number): number | undefined => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+    return Math.min(max, Math.max(0, Math.floor(value)));
+  };
+  const plainObject = (value: any) =>
+    value && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
+
   app.post("/api/user/sync", requireAuth, async (req: any, res) => {
     try {
-      const { coins, tickets, progress, infiniteProgress, stats, albums, avatar, name, setupCompleted, courseProgress } = req.body;
-      const user = await updateUserState(req.user.uid, {
-        coins, tickets, progress, infiniteProgress, stats, albums, avatar, name, setupCompleted, courseProgress
-      });
+      const body = req.body || {};
+      const updates: Record<string, any> = {
+        coins: clampInt(body.coins, MAX_CURRENCY),
+        tickets: clampInt(body.tickets, MAX_CURRENCY),
+        progress: clampInt(body.progress, MAX_PROGRESS),
+        infiniteProgress: plainObject(body.infiniteProgress),
+        courseProgress: plainObject(body.courseProgress),
+        stats: plainObject(body.stats),
+        albums: plainObject(body.albums),
+        avatar: typeof body.avatar === 'string' ? body.avatar.slice(0, 40) : undefined,
+        name: typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 120) : undefined,
+        setupCompleted: typeof body.setupCompleted === 'boolean' ? body.setupCompleted : undefined,
+      };
+      for (const key of Object.keys(updates)) {
+        if (updates[key] === undefined) delete updates[key];
+      }
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: "Nada que sincronizar." });
+      }
+      const user = await updateUserState(req.user.uid, updates);
       res.json(user);
     } catch (error) {
       console.error(error);

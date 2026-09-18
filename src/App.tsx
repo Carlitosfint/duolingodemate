@@ -393,13 +393,23 @@ export default function App() {
   }, [authChecked, authUser, showLoginScreen]);
 
   const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
+  // Read inside the hydration effect, which only depends on authUser.
+  const userRef = useRef(user);
+  userRef.current = user;
 
-  // First login on this device/browser (no cached profile yet): load the
-  // real account — name, role, school — from the backend instead of
-  // guessing. Accounts are provisioned by an admin/teacher with a fixed
-  // role, so the client must never invent one.
+  // Loads the real account — name, role, school — from the backend on every
+  // sign-in. Accounts are provisioned by an admin with a fixed role, so the
+  // client must never invent one.
+  //
+  // Progress is merged rather than overwritten, always keeping whichever side
+  // is further along. Two reasons: students who played before this synced at
+  // all have their whole history only in localStorage and would otherwise be
+  // reset to zero on their next login; and a sync that failed to reach the
+  // server (offline, closed tab) must never cost the student their work.
+  const hydratedRef = useRef(false);
   useEffect(() => {
-    if (!authUser || user) return;
+    if (!authUser || hydratedRef.current) return;
+    hydratedRef.current = true;
     let cancelled = false;
     (async () => {
       try {
@@ -407,33 +417,58 @@ export default function App() {
         const res = await fetch('/api/user', { headers: { Authorization: `Bearer ${token}` } });
         if (cancelled) return;
         if (!res.ok) {
-          setProfileLoadError(
-            res.status === 403
-              ? 'No hay una cuenta registrada para este usuario. Contacta a tu colegio.'
-              : 'No se pudo cargar tu perfil. Intenta de nuevo.'
-          );
+          hydratedRef.current = false;
+          // 403 is definitive (the account isn't registered at any school), so
+          // it always surfaces. A transient failure only blocks the student
+          // when there's no cached profile to fall back on — otherwise they
+          // keep playing offline and the next successful sync catches up.
+          if (res.status === 403) {
+            setProfileLoadError('No hay una cuenta registrada para este usuario. Contacta a tu colegio.');
+          } else if (!userRef.current) {
+            setProfileLoadError('No se pudo cargar tu perfil. Intenta de nuevo.');
+          }
           return;
         }
         const dbUser = await res.json();
-        setUser({
-          name: dbUser.name || authUser.displayName || authUser.email?.split('@')[0] || 'Estudiante',
+        if (cancelled) return;
+
+        const mergeByKey = (a: Record<string, number> = {}, b: Record<string, number> = {}) => {
+          const out: Record<string, number> = { ...a };
+          for (const [k, v] of Object.entries(b)) out[k] = Math.max(Number(out[k]) || 0, Number(v) || 0);
+          return out;
+        };
+
+        setUser(prev => ({
+          // Identity and enrollment always come from the server — they're the
+          // school's data, not the device's.
+          name: prev?.name || dbUser.name || authUser.displayName || authUser.email?.split('@')[0] || 'Estudiante',
           email: dbUser.email || authUser.email || '',
-          avatar: dbUser.avatar || 'fox',
-          coins: dbUser.coins ?? 0,
-          tickets: dbUser.tickets ?? 0,
-          progress: dbUser.progress ?? 0,
-          setupCompleted: dbUser.setupCompleted ?? false,
+          avatar: prev?.avatar || dbUser.avatar || 'fox',
           role: dbUser.role || 'student',
           grade: dbUser.grade || undefined,
-          courseProgress: dbUser.courseProgress || {},
           classroom: dbUser.classroom || '',
+          setupCompleted: dbUser.setupCompleted || prev?.setupCompleted || false,
+          coins: Math.max(dbUser.coins ?? 0, prev?.coins ?? 0),
+          tickets: Math.max(dbUser.tickets ?? 0, prev?.tickets ?? 0),
+          progress: Math.max(dbUser.progress ?? 0, prev?.progress ?? 0),
+          courseProgress: mergeByKey(prev?.courseProgress, dbUser.courseProgress),
+        }));
+        setInfiniteProgress(prev => mergeByKey(prev, dbUser.infiniteProgress));
+        setStats(prev => ((dbUser.stats?.solved ?? 0) > (prev?.solved ?? 0) ? dbUser.stats : prev));
+        setAlbumsState(prev => {
+          const owned = (s: Record<string, AlbumState>) =>
+            Object.values(s || {}).reduce((n, a: any) => n + (a?.piecesOwned?.length || 0), 0);
+          return owned(dbUser.albums) > owned(prev) ? dbUser.albums : prev;
         });
       } catch {
-        if (!cancelled) setProfileLoadError('Error de conexión al cargar tu perfil.');
+        if (!cancelled) {
+          hydratedRef.current = false;
+          if (!userRef.current) setProfileLoadError('Error de conexión al cargar tu perfil.');
+        }
       }
     })();
     return () => { cancelled = true; };
-  }, [authUser, user]);
+  }, [authUser]);
 
 
   // Central Game States
@@ -637,6 +672,57 @@ export default function App() {
       localStorage.setItem('fin_user', JSON.stringify(user));
     }
   }, [user, infiniteProgress, stats, albumsState]);
+
+  // Pushes progress to the server. Until this existed the game lived purely
+  // in localStorage: the teacher dashboard showed zeros for every student,
+  // and logging out (which deliberately clears local state on shared school
+  // computers) destroyed the student's history for good.
+  const syncStateRef = useRef({ user, stats, albumsState, infiniteProgress, authUser });
+  syncStateRef.current = { user, stats, albumsState, infiniteProgress, authUser };
+
+  const syncToServer = useCallback(async () => {
+    const snapshot = syncStateRef.current;
+    if (!snapshot.user || !snapshot.authUser) return;
+    try {
+      const token = await snapshot.authUser.getIdToken();
+      await fetch('/api/user/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          coins: snapshot.user.coins,
+          tickets: snapshot.user.tickets,
+          progress: snapshot.user.progress,
+          courseProgress: snapshot.user.courseProgress || {},
+          infiniteProgress: snapshot.infiniteProgress,
+          stats: snapshot.stats,
+          albums: snapshot.albumsState,
+          avatar: snapshot.user.avatar,
+          name: snapshot.user.name,
+          setupCompleted: snapshot.user.setupCompleted,
+        }),
+      });
+    } catch {
+      // Offline or the server is down: the local copy is still authoritative
+      // and the merge on next sign-in keeps whichever side is further along.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!user || !authUser) return;
+    const timer = setTimeout(syncToServer, 1500);
+    return () => clearTimeout(timer);
+  }, [user, stats, albumsState, infiniteProgress, authUser, syncToServer]);
+
+  // Closing the tab mid-debounce would otherwise drop the last answers.
+  useEffect(() => {
+    const flush = () => { if (document.visibilityState === 'hidden') syncToServer(); };
+    document.addEventListener('visibilitychange', flush);
+    window.addEventListener('pagehide', syncToServer);
+    return () => {
+      document.removeEventListener('visibilitychange', flush);
+      window.removeEventListener('pagehide', syncToServer);
+    };
+  }, [syncToServer]);
 
   useEffect(() => {
     localStorage.setItem('fin_albums_state', JSON.stringify(albumsState));
@@ -1310,6 +1396,9 @@ export default function App() {
   // computer never sees the previous student's progress.
   const handleLogout = async () => {
     playClickSound();
+    // Must happen before signOut (the token goes away) and before the wipe
+    // below, or the student's session is lost instead of saved.
+    await syncToServer();
     try {
       await signOut(auth);
     } catch (e) {
