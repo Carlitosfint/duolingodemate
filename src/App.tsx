@@ -411,6 +411,7 @@ export default function App() {
         const dbUser = await res.json();
         setUser({
           name: dbUser.name || authUser.displayName || authUser.email?.split('@')[0] || 'Estudiante',
+          email: dbUser.email || authUser.email || '',
           avatar: dbUser.avatar || 'fox',
           coins: dbUser.coins ?? 0,
           tickets: dbUser.tickets ?? 0,
@@ -2009,15 +2010,16 @@ export default function App() {
 
               {viewMode === 'profile' && (<TabTransition type="diagonal" key="profile">
                 <div key="profile" className="flex-1 relative bg-white/50 overflow-hidden">
-                  <ProfileModal 
+                  <ProfileModal
                     isInline={true}
-                    stats={stats} 
-                    user={{ ...user, coins, tickets }} 
-                    trophies={TROPHIES} 
-                    coinsSpent={coinsSpent} 
-                    skipsUsed={skipsUsed} 
-                    onReplayTutorial={() => { playClickSound(); setTutorialStep(1); }}
+                    stats={stats}
+                    user={{ ...user, coins, tickets }}
+                    trophies={TROPHIES}
+                    coinsSpent={coinsSpent}
+                    skipsUsed={skipsUsed}
+                    onReplayTutorial={isStaff ? undefined : () => { playClickSound(); setTutorialStep(1); }}
                     onLogout={handleLogout}
+                    onGoToUsers={isStaff ? () => { playClickSound(); setViewMode('teacher_dash'); } : undefined}
                   />
                 </div>
               </TabTransition>)}

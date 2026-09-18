@@ -112,6 +112,7 @@ export interface UserState {
   role?: 'student' | 'teacher' | 'secretary' | 'admin';
   grade?: '3ro' | '4to' | '5to';
   name: string;
+  email?: string;
   avatar: string;
   coins: number;
   tickets: number;
