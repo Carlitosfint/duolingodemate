@@ -341,8 +341,13 @@ export default function App() {
       // role/grade are never set here — both are fixed server-side at enrollment.
       const newUser = { ...user, ...data, setupCompleted: true };
       setUser(newUser);
-      setShowWelcomeBonus(true);
-      setTutorialStep(1);
+      // The welcome bonus and tutorial ("resuelve desafíos", "cofres",
+      // "monedas y álbumes") are about the student game loop — staff
+      // skip straight to a completed setup.
+      if (user.role !== 'teacher' && user.role !== 'admin' && user.role !== 'secretary') {
+        setShowWelcomeBonus(true);
+        setTutorialStep(1);
+      }
     }
   };
 
@@ -1392,8 +1397,9 @@ export default function App() {
       {/* Confetti Celebration */}
       {showConfetti && <ConfettiOverlay />}
 
-      {/* Tutorial Overlay (Interactive Guide) */}
-      {tutorialStep > 0 && tutorialStep <= 3 && (
+      {/* Tutorial Overlay (Interactive Guide) — never for staff, whose accounts
+          skip straight to a completed setup and have no game loop to learn. */}
+      {!isStaff && tutorialStep > 0 && tutorialStep <= 3 && (
         <div className="fixed inset-0 bg-black/80 z-[999] flex items-center justify-center p-4 backdrop-blur-md animate-fade-in">
           <Card className="w-full max-w-lg border-4 border-blue-500 bg-white p-6 md:p-8 text-center animate-pop relative shadow-2xl">
             {/* Step badge */}
@@ -1705,13 +1711,13 @@ export default function App() {
               </TabTransition>)}
 
               {viewMode === 'codice' && (<TabTransition type="blocks" key="codice">
-                <div key="codice" className="flex-1 relative bg-white/50 overflow-hidden">
+                <div key="codice" className="h-full relative bg-white/50 overflow-hidden">
                   <DictLabModal isInline={true} activeCourse={activeCourse} />
                 </div>
               </TabTransition>)}
 
               {viewMode === 'album' && (<TabTransition type="diagonal" key="album">
-                <div key="album" className="flex-1 relative bg-slate-900 overflow-hidden">
+                <div key="album" className="h-full relative bg-slate-900 overflow-hidden">
                   <AlbumModal 
                     isInline={true}
                     albums={initialAlbums}
@@ -2003,13 +2009,13 @@ export default function App() {
               </TabTransition>)}
 
               {viewMode === 'mistakes' && (<TabTransition type="blocks" key="mistakes">
-                <div key="mistakes" className="flex-1 relative bg-white/50 overflow-hidden flex flex-col">
+                <div key="mistakes" className="h-full relative bg-white/50 overflow-hidden flex flex-col">
                   <MistakesModal isInline={true} mistakesList={mistakesList} />
                 </div>
               </TabTransition>)}
 
               {viewMode === 'profile' && (<TabTransition type="diagonal" key="profile">
-                <div key="profile" className="flex-1 relative bg-white/50 overflow-hidden">
+                <div key="profile" className="h-full relative bg-white/50 overflow-hidden">
                   <ProfileModal
                     isInline={true}
                     stats={stats}
@@ -2032,7 +2038,7 @@ export default function App() {
 
 
               {viewMode === 'teacher' && (<TabTransition type="swipe" key="teacher">
-                <div key="teacher" className="flex-1 relative bg-white/50 overflow-hidden">
+                <div key="teacher" className="h-full relative bg-white/50 overflow-hidden">
                   <TeacherModeModal 
                     isInline={true}
                     currentProblemIntro={currentProblem.data.intro}
