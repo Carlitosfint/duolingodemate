@@ -546,12 +546,17 @@ async function startServer() {
   });
 
 
-  // API endpoint for Gemini proxy
-  app.post("/api/gemini", async (req, res) => {
+  // Gemini proxy. Behind auth on purpose: unauthenticated it's an open
+  // relay to a paid API that anyone who finds the URL can bill to the
+  // platform, with no way to tell whose traffic it is.
+  app.post("/api/gemini", requireAuth, async (req: any, res) => {
     try {
-      const { prompt } = req.body;
-      if (!prompt) {
+      const prompt = req.body?.prompt;
+      if (typeof prompt !== 'string' || !prompt.trim()) {
         return res.status(400).json({ error: "Prompt is required" });
+      }
+      if (prompt.length > 4000) {
+        return res.status(400).json({ error: "El texto es demasiado largo." });
       }
 
       const apiKey = process.env.GEMINI_API_KEY;

@@ -1,5 +1,5 @@
 import ReactDOM from 'react-dom';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence, usePresence, useMotionValue, useMotionTemplate, animate } from 'motion/react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { auth } from './lib/firebase';
@@ -26,6 +26,7 @@ import { generateMathProblem } from './utils/math';
 import { useAnimatedNumber } from './utils/animated';
 import { Button, Card, BentoTile, FloatingMathBackground } from './components/UI';
 import { ConfettiOverlay } from './components/ConfettiOverlay';
+import { Toast, ToastTone } from './components/Toast';
 import { AudioToggle } from './components/AudioToggle';
 import { ColegioLogin } from './components/ColegioLogin';
 import { SchoolRegister } from './components/SchoolRegister';
@@ -529,6 +530,15 @@ export default function App() {
   });
 
   // Modals & Overlays Visibility
+  const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback((text: string, tone: ToastTone = 'warn') => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ text, tone });
+    toastTimer.current = setTimeout(() => setToast(null), 2600);
+  }, []);
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
+
   const [showWelcomeBonus, setShowWelcomeBonus] = useState(false);
   const [welcomePrize, setWelcomePrize] = useState<{ icon: string; name: string } | null>(null);
   const [showMistakes, setShowMistakes] = useState(false);
@@ -734,9 +744,13 @@ export default function App() {
   // Secure Server proxy call to Gemini
   const callGemini = async (prompt: string): Promise<string> => {
     try {
+      const token = await auth.currentUser?.getIdToken();
       const response = await fetch('/api/gemini', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ prompt }),
       });
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -1172,18 +1186,20 @@ export default function App() {
     playClickSound(); // maybe another satisfying "pop" sound or something
     
     setAlbumsState(prev => {
-      const newState = { ...prev };
-      const st = newState[piece.albumId] || { piecesOwned: [], completed: false, claimed: false };
-      if (!st.piecesOwned.includes(piece.pieceIndex)) {
-        st.piecesOwned.push(piece.pieceIndex);
-      }
-      
+      const current = prev[piece.albumId];
+      const owned = current?.piecesOwned || [];
+      // Copied, never pushed into: mutating prev's array in place makes the
+      // update invisible to React and corrupts the previous state.
+      const piecesOwned = owned.includes(piece.pieceIndex) ? owned : [...owned, piece.pieceIndex];
       const alb = initialAlbums.find(a => a.id === piece.albumId);
-      if (alb && st.piecesOwned.length === alb.pieces) {
-        st.completed = true;
-      }
-      newState[piece.albumId] = st;
-      return newState;
+      return {
+        ...prev,
+        [piece.albumId]: {
+          piecesOwned,
+          completed: alb ? piecesOwned.length === alb.pieces : current?.completed || false,
+          claimed: current?.claimed || false,
+        },
+      };
     });
 
     setUnplacedPieces(prev => {
@@ -1235,65 +1251,52 @@ export default function App() {
     }, 4000);
   };
 
-  // Minigame completions
+  // Minigame completions. Unlike chests, the pieces land straight in the
+  // album (nothing to place by hand) — the modal is just the reveal.
+  const awardMinigamePieces = (count: number, rarity: string) => {
+    advanceEventProgress();
+    if (count <= 0 || !user) return;
+
+    // Drawn outside the updater: React calls updaters twice in StrictMode,
+    // which would otherwise double every won piece in the reveal modal.
+    const wonPieces = Array.from({ length: count }, () => {
+      const alb = initialAlbums[Math.floor(Math.random() * initialAlbums.length)];
+      const pieceIndex = Math.floor(Math.random() * alb.pieces);
+      return { emoji: alb.emoji, albumName: alb.name, pieceIndex, albumId: alb.id, cols: alb.cols, pieces: alb.pieces };
+    });
+
+    setAlbumsState(prev => {
+      const next = { ...prev };
+      for (const piece of wonPieces) {
+        const owned = next[piece.albumId]?.piecesOwned || [];
+        const piecesOwned = owned.includes(piece.pieceIndex) ? owned : [...owned, piece.pieceIndex];
+        next[piece.albumId] = {
+          piecesOwned,
+          completed: piecesOwned.length === piece.pieces,
+          claimed: next[piece.albumId]?.claimed || false,
+        };
+      }
+      return next;
+    });
+
+    setOpenChestAnimation({
+      isOpen: true,
+      rewardType: 'minigame',
+      piecesWon: wonPieces,
+      coinsWon: 0,
+      ticketsWon: 0,
+      rarity,
+    });
+  };
+
   const onFinishShellGame = (piecesWon: number) => {
     setShowShellGame(false);
-    advanceEventProgress();
-  
-    if (piecesWon > 0 && user) {
-      const newAlbumsState = { ...albumsState };
-      const wonPieces: any[] = [];
-      for (let i = 0; i < piecesWon; i++) {
-        const alb = initialAlbums[Math.floor(Math.random() * initialAlbums.length)];
-        const pIdx = Math.floor(Math.random() * alb.pieces);
-        const st = newAlbumsState[alb.id] || { piecesOwned: [], completed: false, claimed: false };
-        if (!st.piecesOwned.includes(pIdx)) {
-          st.piecesOwned.push(pIdx);
-        }
-        if (st.piecesOwned.length === alb.pieces) st.completed = true;
-        newAlbumsState[alb.id] = st;
-        wonPieces.push({ emoji: alb.emoji, albumName: alb.name, pieceIndex: pIdx });
-      }
-      setAlbumsState(newAlbumsState);
-      setOpenChestAnimation({
-        isOpen: true,
-        rewardType: 'minigame',
-        piecesWon,
-        coinsWon: 0,
-        ticketsWon: 0,
-        rarity: 'common'
-      });
-    }
+    awardMinigamePieces(piecesWon, 'common');
   };
 
   const onFinishPetRace = (piecesWon: number) => {
     setShowPetRace(false);
-    advanceEventProgress();
-  
-    if (piecesWon > 0 && user) {
-      const newAlbumsState = { ...albumsState };
-      const wonPieces: any[] = [];
-      for (let i = 0; i < piecesWon; i++) {
-        const alb = initialAlbums[Math.floor(Math.random() * initialAlbums.length)];
-        const pIdx = Math.floor(Math.random() * alb.pieces);
-        const st = newAlbumsState[alb.id] || { piecesOwned: [], completed: false, claimed: false };
-        if (!st.piecesOwned.includes(pIdx)) {
-          st.piecesOwned.push(pIdx);
-        }
-        if (st.piecesOwned.length === alb.pieces) st.completed = true;
-        newAlbumsState[alb.id] = st;
-        wonPieces.push({ emoji: alb.emoji, albumName: alb.name, pieceIndex: pIdx });
-      }
-      setAlbumsState(newAlbumsState);
-      setOpenChestAnimation({
-        isOpen: true,
-        rewardType: 'minigame',
-        piecesWon,
-        coinsWon: 0,
-        ticketsWon: 0,
-        rarity: 'rare'
-      });
-    }
+    awardMinigamePieces(piecesWon, 'rare');
   };
 
   // Easy shortcuts
@@ -1401,6 +1404,8 @@ export default function App() {
 
       {/* Confetti Celebration */}
       {showConfetti && <ConfettiOverlay />}
+
+      <Toast toast={toast} />
 
       {/* Tutorial Overlay (Interactive Guide) — never for staff, whose accounts
           skip straight to a completed setup and have no game loop to learn. */}
@@ -1554,7 +1559,7 @@ export default function App() {
                           if ((step + 1) % 3 !== 0 || (step % 20 === 0)) {
                             setSelectedTopic(null);
                             setViewMode('exercise');
-                          } else alert("Ya reclamaste esta recompensa en el pasado.");
+                          } else showToast("Ya reclamaste esta recompensa en el pasado.", "info");
                         } else if (step === progress) {
                           if ((step + 1) % 3 === 0 && (step % 20 !== 0)) { 
                              const cycle = Math.floor(step / 3);
@@ -1630,7 +1635,7 @@ export default function App() {
                             setInputAnswer("");
                             setAnswerState({ type: 'idle', text: null });
                             setViewMode('exercise');
-                          } else alert("Ya reclamaste esta recompensa en el pasado.");
+                          } else showToast("Ya reclamaste esta recompensa en el pasado.", "info");
                         } else if (step === curProg) {
                           if ((step + 1) % 3 === 0 && (step % 10 !== 0)) { 
                              if ((Math.floor((step + 1) / 3)) % 7 === 0) {
@@ -1774,7 +1779,7 @@ export default function App() {
                             <button 
                               className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
                               onClick={() => {
-                                 if (user.coins >= 60) { setUser(prev => prev ? { ...prev, coins: prev.coins - 60 } : null); setShieldCount(s => s + 1); playClickSound(); } else { alert("No tienes suficientes monedas."); }
+                                 if (user.coins >= 60) { setUser(prev => prev ? { ...prev, coins: prev.coins - 60 } : null); setShieldCount(s => s + 1); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
                               }}
                             >
                                60 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
@@ -1798,7 +1803,7 @@ export default function App() {
                             <button 
                               className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
                               onClick={() => {
-                                 if (user.coins >= 150) { setUser(prev => prev ? { ...prev, coins: prev.coins - 150 } : null); setShieldCount(s => s + 3); playClickSound(); } else { alert("No tienes suficientes monedas."); }
+                                 if (user.coins >= 150) { setUser(prev => prev ? { ...prev, coins: prev.coins - 150 } : null); setShieldCount(s => s + 3); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
                               }}
                             >
                                150 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
@@ -1823,7 +1828,7 @@ export default function App() {
                               className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto disabled:opacity-50" 
                               disabled={isSupernova}
                               onClick={() => {
-                                 if (user.coins >= 150) { setUser(prev => prev ? { ...prev, coins: prev.coins - 150 } : null); setIsSupernova(true); playClickSound(); } else { alert("No tienes suficientes monedas."); }
+                                 if (user.coins >= 150) { setUser(prev => prev ? { ...prev, coins: prev.coins - 150 } : null); setIsSupernova(true); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
                               }}
                             >
                                150 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
@@ -1847,7 +1852,7 @@ export default function App() {
                             <button 
                               className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
                               onClick={() => {
-                                 if (user.coins >= 200 && !activeDoubleDividends) { setUser(prev => prev ? { ...prev, coins: prev.coins - 200 } : null); setActiveDoubleDividends(true); playClickSound(); } else if (activeDoubleDividends) { alert("Ya tienes este poder activo."); } else { alert("No tienes suficientes monedas."); }
+                                 if (user.coins >= 200 && !activeDoubleDividends) { setUser(prev => prev ? { ...prev, coins: prev.coins - 200 } : null); setActiveDoubleDividends(true); playClickSound(); } else if (activeDoubleDividends) { showToast("Ya tienes este poder activo.", "info"); } else { showToast("No tienes suficientes monedas."); }
                               }}
                             >
                                200 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
@@ -1871,7 +1876,7 @@ export default function App() {
                             <button 
                               className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
                               onClick={() => {
-                                 alert("Disponible próximamente");
+                                 showToast("Disponible próximamente", "info");
                               }}
                             >
                                250 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
@@ -1895,7 +1900,7 @@ export default function App() {
                             <button 
                               className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
                               onClick={() => {
-                                 alert("Disponible próximamente");
+                                 showToast("Disponible próximamente", "info");
                               }}
                             >
                                180 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
@@ -1920,7 +1925,7 @@ export default function App() {
                           <button 
                             className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-sm border-b-4 border-slate-900 transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-auto" 
                             onClick={() => {
-                              if (user.tickets >= 100) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 100 } : null); openRandomChest('common'); playClickSound(); } else { alert("Tickets insuficientes"); }
+                              if (user.tickets >= 100) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 100 } : null); openRandomChest('common'); playClickSound(); } else { showToast("No tienes suficientes tickets."); }
                             }}
                           >
                             <Icon name="coins" size={16} /> 500
@@ -1938,7 +1943,7 @@ export default function App() {
                           <button 
                             className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-sm border-b-4 border-blue-800 transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-auto relative z-10" 
                             onClick={() => {
-                              if (user.tickets >= 300) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 300 } : null); openRandomChest('rare'); playClickSound(); } else { alert("Tickets insuficientes"); }
+                              if (user.tickets >= 300) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 300 } : null); openRandomChest('rare'); playClickSound(); } else { showToast("No tienes suficientes tickets."); }
                             }}
                           >
                             <Icon name="ticket" size={16} /> 300
@@ -1957,7 +1962,7 @@ export default function App() {
                           <button 
                             className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 active:scale-95 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-sm border-b-4 border-amber-700 transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-auto relative z-10" 
                             onClick={() => {
-                              if (user.tickets >= 1000) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 1000 } : null); openRandomChest('legendary'); playClickSound(); } else { alert("Tickets insuficientes"); }
+                              if (user.tickets >= 1000) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 1000 } : null); openRandomChest('legendary'); playClickSound(); } else { showToast("No tienes suficientes tickets."); }
                             }}
                           >
                             <Icon name="ticket" size={16} /> 1000

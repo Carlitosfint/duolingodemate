@@ -34,11 +34,17 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedClassroomFilter, setSelectedClassroomFilter] = useState<string>('all');
+  // A failed load or edit used to do nothing at all: the table just stayed
+  // empty (reading as "no students yet") or the edit silently reverted.
+  const [error, setError] = useState<string | null>(null);
 
   const fetchStudents = async () => {
     try {
       const user = auth.currentUser;
-      if (!user) return;
+      if (!user) {
+        setError('Tu sesión expiró. Vuelve a iniciar sesión.');
+        return;
+      }
       const token = await user.getIdToken();
       const res = await fetch('/api/teacher/students', {
         headers: {
@@ -48,9 +54,14 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
       if (res.ok) {
         const data = await res.json();
         setStudents(data);
+        setError(null);
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error || 'No se pudo cargar la lista de alumnos.');
       }
     } catch (e) {
       console.error(e);
+      setError('Error de conexión al cargar los alumnos.');
     } finally {
       setLoading(false);
     }
@@ -59,7 +70,10 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
   const updateStudent = async (uid: string, updates: any) => {
     try {
       const user = auth.currentUser;
-      if (!user) return;
+      if (!user) {
+        setError('Tu sesión expiró. Vuelve a iniciar sesión.');
+        return;
+      }
       const token = await user.getIdToken();
       const res = await fetch(`/api/teacher/student/${uid}`, {
         method: 'POST',
@@ -70,10 +84,15 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
         body: JSON.stringify(updates)
       });
       if (res.ok) {
+        setError(null);
         fetchStudents();
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error || 'No se pudo guardar el cambio.');
       }
     } catch (e) {
       console.error(e);
+      setError('Error de conexión al guardar el cambio.');
     }
   };
 
@@ -103,9 +122,9 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
         <AdminCreateAccounts canManageStaff={currentUserRole === 'admin'} />
       )}
 
-      <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-black text-slate-800">Panel de Profesor / Admin</h2>
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-2xl sm:text-3xl font-black text-slate-800">Panel de Profesor / Admin</h2>
+        <div className="flex items-center gap-3 flex-wrap">
           <select
             value={selectedClassroomFilter}
             onChange={(e) => setSelectedClassroomFilter(e.target.value)}
@@ -123,6 +142,13 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
           </Button>
         </div>
       </div>
+
+      {error && (
+        <div className="flex items-start gap-3 p-4 rounded-2xl bg-rose-50 border-2 border-rose-200 text-rose-700 font-bold text-sm">
+          <Icon name="alert" size={18} className="shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
 
       <Card className="p-0 !items-start !text-left w-full overflow-hidden">
         <div className="w-full overflow-x-auto">
