@@ -510,10 +510,15 @@ export default function App() {
     return parseInt(localStorage.getItem('fin_skips_used') || '0', 10);
   });
 
+  // Defaults to 0 (hidden): the tutorial is only ever started explicitly,
+  // from handleInitialSetupComplete right after a brand-new account finishes
+  // setup, or from "Ver Tutorial". Defaulting to 1 here used to re-trigger it
+  // on every login where localStorage was empty — which is every login right
+  // after handleLogout, since it deliberately wipes local state so the next
+  // student on a shared computer doesn't inherit the previous one's session.
   const [tutorialStep, setTutorialStep] = useState<number>(() => {
     const saved = localStorage.getItem('fin_tutorial_step');
-    if (saved === null) return 1;
-    return parseInt(saved, 10);
+    return saved === null ? 0 : parseInt(saved, 10);
   });
 
   // UI inputs & feedbacks
