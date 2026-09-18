@@ -230,8 +230,8 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
         <div ref={circle5Ref} className="circle circle-5"></div>
       </div>
 
-      <div className="w-full max-w-md px-6 relative z-10">
-        <div ref={cardRef} className="login-glass-card rounded-[2rem] p-10 relative overflow-hidden z-10 bg-white">
+      <div className="w-full max-w-md px-6 relative z-30">
+        <div ref={cardRef} className="login-glass-card rounded-[2rem] p-10 relative overflow-hidden z-30 bg-white">
           <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-slate-50 to-transparent rounded-bl-full pointer-events-none"></div>
 
           <div className="text-center mb-10">
