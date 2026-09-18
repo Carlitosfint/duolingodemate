@@ -31,6 +31,9 @@ const EditableText: React.FC<{ value: string; onSave: (value: string) => void; p
 const GRADES = ['3ro', '4to', '5to'] as const;
 
 export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ currentUserRole }) => {
+  // Enrollment duties (resetting a student's password, deactivating them)
+  // belong to the admin and the secretary, not to every teacher.
+  const canManageEnrollment = currentUserRole === 'admin' || currentUserRole === 'secretary';
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedClassroomFilter, setSelectedClassroomFilter] = useState<string>('all');
@@ -64,6 +67,39 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
       setError('Error de conexión al cargar los alumnos.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const [resettingUid, setResettingUid] = useState<string | null>(null);
+  const [newPassword, setNewPassword] = useState<{ name: string; email: string; tempPassword: string } | null>(null);
+
+  const resetPassword = async (student: any) => {
+    if (!window.confirm(`¿Restablecer la contraseña de ${student.name}? La contraseña anterior dejará de funcionar.`)) return;
+    setResettingUid(student.uid);
+    setNewPassword(null);
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        setError('Tu sesión expiró. Vuelve a iniciar sesión.');
+        return;
+      }
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/admin/users/${student.uid}/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setNewPassword(body);
+        setError(null);
+      } else {
+        setError(body.error || 'No se pudo restablecer la contraseña.');
+      }
+    } catch (e) {
+      console.error(e);
+      setError('Error de conexión al restablecer la contraseña.');
+    } finally {
+      setResettingUid(null);
     }
   };
 
@@ -147,6 +183,35 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
         <div className="flex items-start gap-3 p-4 rounded-2xl bg-rose-50 border-2 border-rose-200 text-rose-700 font-bold text-sm">
           <Icon name="alert" size={18} className="shrink-0 mt-0.5" />
           <span>{error}</span>
+        </div>
+      )}
+
+      {newPassword && (
+        <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-200">
+          <p className="font-black text-emerald-800 text-sm mb-1">
+            Contraseña restablecida: {newPassword.name}
+          </p>
+          <p className="text-sm text-emerald-900">
+            Correo: <span className="font-mono font-bold">{newPassword.email}</span> — Nueva contraseña:{' '}
+            <span className="font-mono font-bold bg-white px-2 py-0.5 rounded border border-emerald-200">{newPassword.tempPassword}</span>
+          </p>
+          <div className="flex items-center gap-3 mt-2">
+            <button
+              onClick={() => navigator.clipboard?.writeText(newPassword.tempPassword).catch(() => {})}
+              className="text-xs font-black text-emerald-700 underline underline-offset-2 hover:text-emerald-900"
+            >
+              Copiar contraseña
+            </button>
+            <button
+              onClick={() => setNewPassword(null)}
+              className="text-xs font-black text-slate-500 underline underline-offset-2 hover:text-slate-700"
+            >
+              Ocultar
+            </button>
+          </div>
+          <p className="text-[11px] text-emerald-700 mt-2">
+            Anótala ahora, no se volverá a mostrar. Entrégasela solo a esa persona.
+          </p>
         </div>
       )}
 
@@ -242,6 +307,16 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
                         <button onClick={() => updateStudent(student.uid, { progress: (student.progress || 0) + 20 })} className="bg-emerald-100 text-emerald-700 p-2 rounded-lg hover:bg-emerald-200 transition-colors" title="Avanzar nivel">
                           <Icon name="arrow_up" size={14} />
                         </button>
+                        {canManageEnrollment && (
+                          <button
+                            onClick={() => resetPassword(student)}
+                            disabled={resettingUid === student.uid}
+                            className="bg-slate-100 text-slate-600 p-2 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-40"
+                            title="Restablecer contraseña"
+                          >
+                            <Icon name="key" size={14} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

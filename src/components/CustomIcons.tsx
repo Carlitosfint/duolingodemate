@@ -7,7 +7,7 @@ import { Hash, Sparkles as Sparkles2, Check as Check2,
   ChevronLeft, Check, AlertCircle, ShieldAlert, BadgeCent,
   Trophy, Banknote, Landmark, ShieldCheck, Map as MapIcon, BookX, Diamond,
   Mail, Eye, EyeOff, Phone, CreditCard, Rocket,
-  Users, Plus, ChevronDown, ArrowUp, ArrowDown, RefreshCw
+  Users, Plus, ChevronDown, ArrowUp, ArrowDown, RefreshCw, KeyRound, UserMinus, UserCheck
 } from 'lucide-react';
 
 export const Icon = ({ name, className, size = 24 }: { name: string, className?: string, size?: number }) => {
@@ -360,6 +360,9 @@ export const Icon = ({ name, className, size = 24 }: { name: string, className?:
     case 'arrow_left': return <ChevronLeft {...iconProps} />;
     case 'refresh_cw': return <RefreshCw {...iconProps} />;
     case 'alert': return <AlertCircle {...iconProps} />;
+    case 'key': return <KeyRound {...iconProps} />;
+    case 'user_minus': return <UserMinus {...iconProps} />;
+    case 'user_check': return <UserCheck {...iconProps} />;
     default: return <Sparkles2 {...iconProps} />;
   }
 };

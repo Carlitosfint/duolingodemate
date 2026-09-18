@@ -576,6 +576,46 @@ async function startServer() {
     }
   });
 
+  // Issues a fresh temporary password. Students can't use the "forgot your
+  // password" email: their address is generated on the school's domain
+  // (20265473@colegio.com) and no such mailbox exists, so without this an
+  // account is locked out permanently the first time a student forgets.
+  app.post("/api/admin/users/:uid/reset-password", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    const targetUid = req.params.uid;
+    try {
+      const target = await getUserState(targetUid);
+      // Scoped to the caller's own school; a 404 either way so this can't be
+      // used to probe which uids exist elsewhere on the platform.
+      if (!target || target.schoolId !== caller.schoolId) {
+        return res.status(404).json({ error: "No se encontró esa cuenta en tu colegio." });
+      }
+      // A secretary handles enrollment, so they reset students. Resetting
+      // staff — including another admin — stays with the admin.
+      const allowed = target.role === 'student'
+        ? canManageEnrollment(caller.role)
+        : caller.role === 'admin';
+      if (!allowed) {
+        return res.status(403).json({ error: "No tienes permiso para restablecer esa contraseña." });
+      }
+      // Resetting your own password here would be a way to lock yourself out
+      // of an active session for no reason; use the email flow instead.
+      if (target.uid === caller.uid) {
+        return res.status(400).json({ error: 'Para tu propia cuenta usa "¿Olvidaste tu contraseña?" en el login.' });
+      }
+
+      const tempPassword = generateTempPassword();
+      await adminAuth.updateUser(targetUid, { password: tempPassword });
+      res.json({ tempPassword, name: target.name, email: target.email });
+    } catch (error: any) {
+      console.error(error);
+      if (error?.code === 'auth/user-not-found') {
+        return res.status(404).json({ error: "Esa cuenta ya no existe en el sistema de acceso." });
+      }
+      res.status(500).json({ error: "No se pudo restablecer la contraseña." });
+    }
+  });
+
 
   // Gemini proxy. Behind auth on purpose: unauthenticated it's an open
   // relay to a paid API that anyone who finds the URL can bill to the
