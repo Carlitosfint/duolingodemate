@@ -6,7 +6,7 @@ function rnd(min: number, max: number) {
 
 export function generatePropiedadesRT(isGolden: boolean): ProblemData {
   // Identidades recíprocas (sen * csc = 1, cos * sec = 1, tan * cot = 1)
-  // o corrazones (sen(x) = cos(y) => x+y=90)
+  // o co-razones (sen(x) = cos(y) => x+y=90)
   const isReciprocal = Math.random() > 0.5;
   let intro, expected, explanation;
   const factor = isGolden ? rnd(2, 5) : 1;
@@ -42,7 +42,7 @@ export function generatePropiedadesRT(isGolden: boolean): ProblemData {
         explanation += ` Entonces, ${factor}x = ${expected}.`;
     }
   } else {
-    // corrazones: sen(A) = cos(B) => A+B=90
+    // co-razones: sen(A) = cos(B) => A+B=90
     const names = [
       ['sen', 'cos'],
       ['tan', 'cot'],
@@ -71,7 +71,7 @@ export function generatePropiedadesRT(isGolden: boolean): ProblemData {
     
     intro = `Si se cumple que ${rt1}(${term1_x === 1 ? '' : term1_x}x + ${c1}°) = ${rt2}(${term2_x === 1 ? '' : term2_x}x + ${c2}°). Calcula x.`;
     expected = final_x;
-    explanation = `Por ángulos complementarios (corrazones), si ${rt1}(A) = ${rt2}(B), entonces A + B = 90°. Por lo tanto, (${term1_x}x + ${c1}) + (${term2_x}x + ${c2}) = 90 => ${total_x}x + ${valid_sum} = 90 => ${total_x}x = ${90-valid_sum} => x = ${final_x}.`;
+    explanation = `Por ángulos complementarios (co-razones), si ${rt1}(A) = ${rt2}(B), entonces A + B = 90°. Por lo tanto, (${term1_x}x + ${c1}) + (${term2_x}x + ${c2}) = 90 => ${total_x}x + ${valid_sum} = 90 => ${total_x}x = ${90-valid_sum} => x = ${final_x}.`;
     
     if (isGolden) {
         intro += ` Luego, calcula ${factor}x.`;
@@ -227,32 +227,25 @@ export function generateGeometriaAnalitica(isGolden: boolean): ProblemData {
 }
 
 export function generateAngulosPosicionNormal(isGolden: boolean): ProblemData {
-  const quads = [1, 2, 3, 4];
-  const q = quads[rnd(0,3)];
-  let intro, expected, explanation;
-  
-  if (q === 1) {
-    const x = 3, y = 4, r = 5;
-    intro = `El punto P(${x}; ${y}) pertenece al lado final de un ángulo α en posición normal. Calcula 5·sen(α).`;
-    expected = 5 * (y/r);
-    explanation = `El radio vector es r = √(${x}² + ${y}²) = ${r}. Además sen(α) = Y/r = ${y}/${r}. Por lo tanto, 5·sen(α) = 5·(${y}/${r}) = ${expected}.`;
-  } else if (q === 2) {
-    const x = -4, y = 3, r = 5;
-    intro = `El punto P(${x}; ${y}) pertenece al lado final de un ángulo θ en posición normal. Calcula 5·cos(θ).`;
-    expected = 5 * (x/r);
-    explanation = `El radio vector es r = √(${x}² + ${y}²) = ${r}. Además cos(θ) = X/r = ${x}/${r}. Por lo tanto, 5·cos(θ) = 5·(${x}/${r}) = ${expected}.`;
-  } else if (q === 3) {
-    const x = -5, y = -12, r = 13;
-    intro = `El punto P(${x}; ${y}) pertenece al lado final de un ángulo β en posición normal. Calcula 13·sen(β).`;
-    expected = 13 * (y/r);
-    explanation = `El radio vector es r = √(${x}² + ${y}²) = ${r}. sen(β) = Y/r = ${y}/${r}. Entonces 13·sen(β) = ${expected}.`;
-  } else {
-    const x = 8, y = -15, r = 17;
-    intro = `El punto P(${x}; ${y}) pertenece al lado final de un ángulo γ en posición normal. Calcula 17·cos(γ).`;
-    expected = 17 * (x/r);
-    explanation = `El radio vector es r = √(${x}² + ${y}²) = ${r}. cos(γ) = X/r = ${x}/${r}. Entonces 17·cos(γ) = ${expected}.`;
-  }
-  
+  // A Pythagorean triple keeps r whole; the quadrant decides the signs. This
+  // used to be four hard-coded problems, so every student saw the same four.
+  const triples = [[3, 4, 5], [5, 12, 13], [8, 15, 17], [7, 24, 25], [20, 21, 29], [12, 35, 37]];
+  const [legA, legB, r] = triples[rnd(0, triples.length - 1)];
+  // Either leg can play the horizontal role, for more distinct-looking points.
+  const [absX, absY] = rnd(0, 1) === 0 ? [legA, legB] : [legB, legA];
+  const q = rnd(1, 4);
+  const x = (q === 1 || q === 4) ? absX : -absX;
+  const y = (q === 1 || q === 2) ? absY : -absY;
+  const letter = ['α', 'θ', 'β', 'γ'][q - 1];
+  const useSine = rnd(0, 1) === 0;
+  // -4² is -16: a negative coordinate has to be squared inside parentheses.
+  const sq = (n: number) => (n < 0 ? `(${n})²` : `${n}²`);
+
+  let intro = `El punto P(${x}; ${y}) pertenece al lado final de un ángulo ${letter} en posición normal. Calcula ${r}·${useSine ? 'sen' : 'cos'}(${letter}).`;
+  let expected = useSine ? y : x;
+  const ratio = useSine ? `Y/r = ${y}/${r}` : `X/r = ${x}/${r}`;
+  let explanation = `El radio vector es r = √(${sq(x)} + ${sq(y)}) = √(${x * x} + ${y * y}) = ${r}. Como ${useSine ? 'sen' : 'cos'}(${letter}) = ${ratio}, entonces ${r}·${useSine ? 'sen' : 'cos'}(${letter}) = ${r}·(${expected}/${r}) = ${expected}.`;
+
   if (isGolden) {
       intro += ` Y luego réstale 2.`;
       expected -= 2;

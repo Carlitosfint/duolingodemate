@@ -13,6 +13,9 @@ export interface ProblemData {
 export interface CurrentProblem {
   data: ProblemData;
   solved: boolean;
+  // Answered wrong: the question is closed (no second try, no answer shown)
+  // and the student moves on. It's stored in "Errores" to review later.
+  failed?: boolean;
   timestamp?: number;
 }
 

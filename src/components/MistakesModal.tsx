@@ -28,7 +28,7 @@ export const MistakesModal: React.FC<MistakesModalProps> = ({ onClose, mistakesL
                 <span className="text-rose-500">#{(idx+1)}:</span> {m.problem}
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs font-black mb-3">
-                <div className="bg-rose-50 p-2 rounded-xl border border-rose-100 text-rose-700">Tu respuesta: {m.userAnswer}%</div>
+                <div className="bg-rose-50 p-2 rounded-xl border border-rose-100 text-rose-700">Tu respuesta: {m.userAnswer}</div>
                 <div className="bg-emerald-50 p-2 rounded-xl border border-emerald-100 text-emerald-700">Respuesta Correcta: {m.correctAnswer}</div>
               </div>
               <div className="p-3 bg-blue-50/50 rounded-xl text-[11px] font-medium text-slate-600 border border-blue-100">

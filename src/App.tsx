@@ -1034,14 +1034,19 @@ export default function App() {
       // Events are now handled from the map directly, not auto-triggered here.
 
     } else {
-      // Wrong response
+      // Wrong response. The answer is deliberately NOT revealed here: it used
+      // to be shown along with "¡Vuelve a intentarlo!", so the student could
+      // read it and retype it for full rewards — the question taught nothing
+      // and the progression meant nothing. Now the question closes, the miss
+      // is filed under "Errores" (answer + explanation there, to review), and
+      // the student moves on to a new one at the same level.
       playErrorAlertSound();
-      
+
       if (shieldCount > 0) {
         setShieldCount(prev => prev - 1);
         setAnswerState({
           type: 'wrong',
-          text: <><Icon name="x" className="inline-block" size={18} /> Respuesta incorrecta. ¡Tu Escudo te protegió y salvó tu racha de 🔥 {streak}!</>
+          text: <><Icon name="x" className="inline-block" size={18} /> Incorrecto, pero tu Escudo salvó tu racha de 🔥 {streak}. Lo guardamos en Errores para repasarlo.</>
         });
         playShieldSound();
       } else {
@@ -1049,24 +1054,26 @@ export default function App() {
         setIsSupernova(false);
         setAnswerState({
           type: 'wrong',
-          text: <span className="flex items-center gap-1 flex-wrap justify-center"><Icon name="x" size={18} /> Incorrecto. La respuesta era {isTruthTable ? currentProblem.data.expectedAnswer : correctVal}{currentProblem.data.unit}. ¡Vuelve a intentarlo!</span>
+          text: <span className="flex items-center gap-1 flex-wrap justify-center"><Icon name="x" size={18} /> Incorrecto. Lo guardamos en tus Errores con la explicación para que lo repases.</span>
         });
-
-        // Add to Mistakes
-        const exist = mistakesList.some(m => m.problem === currentProblem.data.intro);
-        if (!exist) {
-          setMistakesList(prev => [
-            {
-              problem: currentProblem.data.intro,
-              userAnswer: inputAnswer.trim(),
-              correctAnswer: currentProblem.data.expectedAnswer,
-              explanation: currentProblem.data.explanation
-            },
-            ...prev
-          ]);
-        }
       }
 
+      // Recorded whether or not a shield absorbed the streak loss: the shield
+      // protects the streak, it doesn't mean the student got it right.
+      const exist = mistakesList.some(m => m.problem === currentProblem.data.intro);
+      if (!exist) {
+        setMistakesList(prev => [
+          {
+            problem: currentProblem.data.intro,
+            userAnswer: inputAnswer.trim(),
+            correctAnswer: currentProblem.data.expectedAnswer,
+            explanation: currentProblem.data.explanation
+          },
+          ...prev
+        ]);
+      }
+
+      setCurrentProblem(prev => ({ ...prev, failed: true }));
       setStats(prev => ({ ...prev, failedAttempts: prev.failedAttempts + 1 }));
     }
   };
@@ -2335,10 +2342,28 @@ export default function App() {
                       SIGUIENTE DESAFÍO <Icon name="arrow_right" size={20} className="inline-block ml-1" />
                     </Button></motion.div>
                   );
-                })() : (
+                })() : currentProblem.failed ? (
+                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.3 }} className="w-full">
+                    <Button
+                      type="button"
+                      onClick={loadNextProblem}
+                      color="blue"
+                      className="w-full py-4 text-base font-black uppercase tracking-widest shadow-[0_4px_0_#1d4ed8] active:shadow-none active:translate-y-1 hover:-translate-y-0.5 transition-all"
+                    >
+                      SIGUIENTE PREGUNTA <Icon name="arrow_right" size={20} className="inline-block ml-1" />
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => { playClickSound(); setShowMistakes(true); }}
+                      className="w-full mt-3 text-xs font-black text-slate-500 hover:text-blue-600 underline underline-offset-2 transition-colors"
+                    >
+                      Ver la explicación en mis Errores
+                    </button>
+                  </motion.div>
+                ) : (
                   <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.3 }}>
                     <h4 className="text-slate-500 font-bold mb-4 text-[13px]">Ingresa tu respuesta:</h4>
-                    
+
                     {currentProblem.data.visualData?.type === 'truth_table' ? (
                       <TruthTableInput 
                         formula={currentProblem.data.visualData.formula}

@@ -13,7 +13,7 @@ export function generatePlanteoEcuaciones(isGolden: boolean): ProblemData {
     const a = rnd(2, 5);
     const diff = 2 * a * x + a * a;
     
-    intro = `Si al cuadrado de un número le sumamos ${a}, y luego elevamos el resultado original más ${a} al cuadrado y le restamos el cuadrado del número original, la diferencia es ${diff}. (En otras palabras, la diferencia entre el cuadrado del número aumentado en ${a} y el cuadrado del número original es ${diff}). ¿Cuál es el número?`;
+    intro = `Si a un número lo aumentamos en ${a} y elevamos el resultado al cuadrado, obtenemos ${diff} más que el cuadrado del número original. ¿Cuál es el número?`;
     expected = x;
     explanation = `Sea 'x' el número. Planteamos: (x + ${a})² - x² = ${diff}. Resolviendo: x² + ${2*a}x + ${a*a} - x² = ${diff} => ${2*a}x = ${diff - a*a} => x = ${x}.`;
   } else {
@@ -70,9 +70,12 @@ export function generateEdades(isGolden: boolean): ProblemData {
     // Tipo 2: E + x = factor * (E - y)
     const factor = rnd(2, 4);
     const y = rnd(3, 8);
-    // For factor 2, x = E - 2y can go to 0 or negative for small E; keep it a
-    // real future ("dentro de X años" with X >= 1) by raising E's floor then.
-    const E = factor === 2 ? rnd(Math.max(15, 2 * y + 1), 30) : rnd(15, 30);
+    // x = (factor-1)·E - factor·y. Sin acotarlo salían enunciados absurdos
+    // como "dentro de 69 años mi edad será...". Se despeja el rango de E que
+    // deja x entre 2 y 25 años, que es un plazo creíble para un escolar.
+    const loE = Math.max(12, Math.ceil((2 + factor * y) / (factor - 1)));
+    const hiE = Math.min(40, Math.floor((25 + factor * y) / (factor - 1)));
+    const E = hiE >= loE ? rnd(loE, hiE) : loE;
     const x = factor * (E - y) - E;
     const factorText = factor === 2 ? 'el doble' : factor === 3 ? 'el triple' : 'el cuádruple';
     
@@ -80,17 +83,22 @@ export function generateEdades(isGolden: boolean): ProblemData {
     expected = E;
     explanation = `Sea E mi edad actual. Dentro de ${x} años tendré (E + ${x}). Hace ${y} años tenía (E - ${y}). Planteamos: E + ${x} = ${factor}(E - ${y}) => E + ${x} = ${factor}E - ${factor * y} => ${x + factor * y} = ${factor - 1}E => E = ${E}.`;
   } else {
-    // Tipo 3: Relación de edades
+    // Tipo 3: Relación de edades. La razón base era siempre "3 a 5", así que
+    // el alumno veía la misma pregunta una y otra vez.
+    const ratios = [[2, 3], [3, 4], [3, 5], [4, 5], [5, 6], [5, 7], [4, 7], [2, 5]];
+    const [a, b] = ratios[rnd(0, ratios.length - 1)];
     const k = rnd(3, 7);
-    const a = 3, b = 5;
-    const pastOffset = rnd(1, 2) * k; 
-    
+
     const edadA = a * k;
     const edadB = b * k;
-    const aFuturo = a + rnd(1, 2);
-    const bFuturo = b + aFuturo - a; 
-    const kFuturo = k;
-    const añosFuturo = (aFuturo * kFuturo) - edadA;
+    // Los años que pasan son un múltiplo de k, así la razón futura queda
+    // exacta: (a+m)k : (b+m)k, que se simplifica a (a+m):(b+m).
+    const m = rnd(1, 3);
+    const añosFuturo = m * k;
+    const gcd = (p: number, q: number): number => (q === 0 ? p : gcd(q, p % q));
+    const g = gcd(a + m, b + m);
+    const aFuturo = (a + m) / g;
+    const bFuturo = (b + m) / g;
 
     if (añosFuturo > 0) {
       intro = `Las edades de Ana y Beto están en relación de ${a} a ${b}. Dentro de ${añosFuturo} años estarán en relación de ${aFuturo} a ${bFuturo}. ¿Cuántos años tiene Beto?`;
@@ -299,18 +307,31 @@ export function generateMezclasAleaciones(isGolden: boolean): ProblemData {
     const vol1 = rnd(2, 5) * 10;
     const grado1 = rnd(20, 40);
     const vol2 = rnd(1, 4) * 10;
-    const grado2 = rnd(50, 80);
-    
     const total_vol = vol1 + vol2;
-    const mean = Math.round((vol1 * grado1 + vol2 * grado2) / total_vol);
-    
-    intro = `Se mezclan ${vol1}L de alcohol al ${grado1}% con ${vol2}L de alcohol al ${grado2}%. ¿Cuál es el grado de pureza (%) aproximado de la mezcla resultante?`;
+
+    // grado2 is chosen so the weighted mean lands on a whole number. With a
+    // rounded mean the exact answer (48.33) failed the ±0.05 check while the
+    // rounded one (48) passed — the student was right and marked wrong.
+    const exact: number[] = [];
+    for (let g = 50; g <= 80; g++) {
+      if ((vol1 * grado1 + vol2 * g) % total_vol === 0) exact.push(g);
+    }
+    const grado2 = exact.length ? exact[rnd(0, exact.length - 1)] : 60;
+    const mean = (vol1 * grado1 + vol2 * grado2) / total_vol;
+
+    intro = `Se mezclan ${vol1}L de alcohol al ${grado1}% con ${vol2}L de alcohol al ${grado2}%. ¿Cuál es el grado de pureza (%) de la mezcla resultante?`;
     expected = mean;
-    explanation = `Grado medio = (V1·G1 + V2·G2) / (V1 + V2) = (${vol1}·${grado1} + ${vol2}·${grado2}) / ${total_vol} ≈ ${mean}%.`;
+    explanation = `Grado medio = (V1·G1 + V2·G2) / (V1 + V2) = (${vol1}·${grado1} + ${vol2}·${grado2}) / ${total_vol} = ${vol1 * grado1 + vol2 * grado2} / ${total_vol} = ${mean}%.`;
   } else {
-    intro = `Un grifo llena un tanque en 4 horas y otro grifo lo llena en 12 horas. Si se abren ambos a la vez, ¿en cuántas horas se llenará el tanque?`;
-    expected = 3;
-    explanation = `En 1 hora, el primero llena 1/4 y el segundo 1/12. Juntos llenan 1/4 + 1/12 = 3/12 + 1/12 = 4/12 = 1/3 del tanque. Por lo tanto, tardarán 3 horas.`;
+    // Pairs whose combined time is exact, so the answer is never a rounded
+    // decimal. Previously this branch was a single hard-coded 4h/12h problem.
+    const pairs = [[3, 6], [4, 12], [6, 12], [5, 20], [6, 30], [10, 15], [9, 18], [12, 24], [10, 40], [14, 35], [21, 28], [12, 36]];
+    const [t1, t2] = pairs[rnd(0, pairs.length - 1)];
+    const product = t1 * t2;
+    const sum = t1 + t2;
+    expected = product / sum;
+    intro = `Un grifo llena un tanque en ${t1} horas y otro grifo lo llena en ${t2} horas. Si se abren ambos a la vez, ¿en cuántas horas se llenará el tanque?`;
+    explanation = `En 1 hora el primero llena 1/${t1} del tanque y el segundo 1/${t2}. Juntos: 1/${t1} + 1/${t2} = ${t2}/${product} + ${t1}/${product} = ${sum}/${product} del tanque por hora. Entonces el tanque completo toma ${product}/${sum} = ${expected} horas.`;
   }
 
   if (isGolden) {

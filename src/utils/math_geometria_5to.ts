@@ -9,10 +9,16 @@ export function generateRelacionesMetricas(isGolden: boolean): ProblemData {
   let intro, expected, explanation, visualData;
   
   if (t === 0) {
-    // Relaciones métricas en triángulo rectángulo: h^2 = m * n
-    const mn_opts = [[2, 8], [4, 9], [4, 16], [5, 20], [9, 16]];
-    const [m_val, n_val] = mn_opts[rnd(0, mn_opts.length - 1)];
-    const h_val = Math.sqrt(m_val * n_val);
+    // Relaciones métricas en triángulo rectángulo: h² = m·n.
+    // m = d·u² y n = d·v² garantizan que h = d·u·v sea entero, en vez de la
+    // lista fija de 5 pares que hacía repetir siempre los mismos problemas.
+    const d = rnd(1, 5);
+    let u = rnd(1, 5);
+    let v = rnd(1, 5);
+    while (v === u) v = rnd(1, 5);
+    const m_val = d * u * u;
+    const n_val = d * v * v;
+    const h_val = d * u * v;
     
     intro = `Analicemos este triángulo rectángulo. Las proyecciones (sombras) de sus dos lados más cortos (catetos) sobre el piso (hipotenusa) miden ${m_val} y ${n_val}. ¿Podrías calcular la altura (h)?`;
     expected = h_val;
@@ -33,10 +39,15 @@ El cuadrado de la altura siempre es igual a la multiplicación de las dos proyec
       h: 'h'
     };
   } else if (t === 1) {
-    // Relaciones métricas cateto: a^2 = c * m
-    const cm_opts = [[16, 4], [25, 9], [100, 36], [25, 16], [9, 4]]; // [c, m] -> c must be > m. a = sqrt(c*m)
-    const [c_val, m_val] = cm_opts[rnd(0, cm_opts.length - 1)];
-    const a_val = Math.sqrt(c_val * m_val);
+    // Relaciones métricas en el cateto: a² = c·m.
+    // Sobre un 3-4-5 escalado por s, la hipotenusa mide 25s y las
+    // proyecciones 9s y 16s, así que a = 15s o 20s: siempre enteros y con un
+    // triángulo real detrás (m < c y n = c - m > 0).
+    const s = rnd(1, 6);
+    const c_val = 25 * s;
+    const useShortLeg = rnd(0, 1) === 0;
+    const m_val = (useShortLeg ? 9 : 16) * s;
+    const a_val = (useShortLeg ? 15 : 20) * s;
 
     intro = `Mira el cateto izquierdo "a". Sabemos que toda la hipotenusa (c) mide ${c_val} y la proyección (sombra) que deja ese mismo cateto en el suelo mide ${m_val}. ¿Cuánto mide el cateto "a"?`;
     expected = a_val;
@@ -221,21 +232,18 @@ La respuesta sin π es ${expected}.`;
 export function generateGeometriaEspacio(isGolden: boolean): ProblemData {
   let intro, expected, explanation, visualData;
   
-  // Teorema de las 3 perpendiculares
-  // Triángulo rectángulo en el plano y una perpendicular al plano.
-  const a = rnd(3, 4) * 2;
-  const b = rnd(4, 5) * 2;
-  const h = rnd(2, 6) * 3;
-  // Just use Pythagorean triples for easy math.
-  // 3-4-5, 5-12-13, 6-8-10, 8-15-17
-  const triples = [[3, 4, 5], [5, 12, 13], [6, 8, 10], [8, 15, 17]];
-  const [leg1, leg2, hyp] = triples[rnd(0, triples.length - 1)];
-  const [h_height, proj, dist] = triples[rnd(0, triples.length - 1)]; // reuse for the vertical triangle
-  
-  // Let's make it simpler: PA is perpendicular to plane P. AB is in plane P. PB is slanted.
-  // Triangle PAB is right angled at A. PA = h_height, AB = proj, PB = dist.
-  // BC is perpendicular to AB in the plane.
-  
+  // PA ⊥ al plano, AB en el plano => triángulo PAB recto en A.
+  // Una terna pitagórica escalada mantiene la aritmética exacta; antes se
+  // elegía entre 4 ternas fijas, así que solo existían 4 problemas posibles.
+  const triples = [[3, 4, 5], [5, 12, 13], [8, 15, 17], [7, 24, 25], [20, 21, 29], [9, 40, 41]];
+  const [t1, t2, t3] = triples[rnd(0, triples.length - 1)];
+  const scale = rnd(1, 3);
+  // Cualquiera de los catetos puede ser la vertical.
+  const swap = rnd(0, 1) === 0;
+  const h_height = (swap ? t1 : t2) * scale;
+  const proj = (swap ? t2 : t1) * scale;
+  const dist = t3 * scale;
+
   intro = `Una recta PA es perpendicular al plano que contiene a un rectángulo ABCD (P no pertenece al plano). Si PA = ${h_height} y AB = ${proj}, calcula la distancia desde el punto P hasta el vértice B.`;
   expected = dist;
   explanation = `Como PA es perpendicular al plano, es perpendicular a cualquier recta del plano que pase por A. En particular, PA ⊥ AB.
