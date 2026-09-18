@@ -41,6 +41,12 @@ export const requireAuth = async (
     if (!dbUser) {
       return res.status(403).json({ error: 'No hay una cuenta registrada para este usuario. Contacta a tu colegio.' });
     }
+    // Deactivating disables the Firebase account too, but an ID token
+    // already issued stays valid for up to an hour — this closes that
+    // window, so the session stops working the moment they're given leave.
+    if (dbUser.active === false) {
+      return res.status(403).json({ error: 'Tu cuenta está dada de baja. Contacta a tu colegio.' });
+    }
     req.dbUser = dbUser;
     next();
   } catch (error) {

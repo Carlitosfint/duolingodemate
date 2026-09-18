@@ -79,7 +79,7 @@ async function startServer() {
 
   // Database endpoints
   const { requireAuth } = await import('./src/middleware/auth.ts');
-  const { getUserState, updateUserState, getAllStudents, createSchoolUser, countStudentsBySection, getUserByDni } = await import('./src/db/users.ts');
+  const { getUserState, updateUserState, getAllStudents, createSchoolUser, countStudentsBySection, getUserByDni, countActiveAdmins } = await import('./src/db/users.ts');
   const { getSchool, updateSchool, createSchool, getSchoolBySlug, getSchoolByEmailDomain, deleteSchool } = await import('./src/db/schools.ts');
   const { adminAuth } = await import('./src/lib/firebase-admin.ts');
 
@@ -573,6 +573,53 @@ async function startServer() {
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Failed to update student" });
+    }
+  });
+
+  // Gives someone leave, or brings them back. Soft on purpose: deleting the
+  // row would take the student's history with it, and their DNI may still be
+  // needed to transfer them to another school on the platform. The Firebase
+  // account is disabled alongside so they can't sign in at all.
+  app.post("/api/admin/users/:uid/active", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    const targetUid = req.params.uid;
+    const active = req.body?.active;
+    if (typeof active !== 'boolean') {
+      return res.status(400).json({ error: "Falta indicar si la cuenta queda activa o de baja." });
+    }
+    try {
+      const target = await getUserState(targetUid);
+      if (!target || target.schoolId !== caller.schoolId) {
+        return res.status(404).json({ error: "No se encontró esa cuenta en tu colegio." });
+      }
+      const allowed = target.role === 'student'
+        ? canManageEnrollment(caller.role)
+        : caller.role === 'admin';
+      if (!allowed) {
+        return res.status(403).json({ error: "No tienes permiso para dar de baja esa cuenta." });
+      }
+      // Locking yourself out would leave the school with no way back in if
+      // you're its only admin.
+      if (target.uid === caller.uid) {
+        return res.status(400).json({ error: "No puedes darte de baja a ti mismo." });
+      }
+      if (target.role === 'admin' && !active) {
+        const admins = await countActiveAdmins(caller.schoolId);
+        if (admins <= 1) {
+          return res.status(400).json({ error: "Es el único administrador activo del colegio. Nombra a otro antes de darlo de baja." });
+        }
+      }
+
+      await adminAuth.updateUser(targetUid, { disabled: !active }).catch((e) => {
+        // Missing in Firebase (already removed by hand) shouldn't block the
+        // row from being marked — the DB flag is what gates access anyway.
+        if (e?.code !== 'auth/user-not-found') throw e;
+      });
+      const updated = await updateUserState(targetUid, { active });
+      res.json({ user: updated });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudo actualizar el estado de la cuenta." });
     }
   });
 

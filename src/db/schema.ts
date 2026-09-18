@@ -76,6 +76,11 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').defaultNow(),
   setupCompleted: boolean('setup_completed').default(false),
   classroom: text('classroom').default(''),
+  // Soft deactivation for someone who left the school (or an account
+  // created by mistake). Deleting the row outright would take their
+  // history with it and free a DNI that may still matter for a transfer,
+  // so the row stays and the session is refused instead.
+  active: boolean('active').default(true).notNull(),
 }, (table) => ({
   // A DNI identifies one real person platform-wide, not per school — so
   // this is unique across every school, not scoped to schoolId. Partial:

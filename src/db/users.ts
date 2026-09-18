@@ -71,3 +71,11 @@ export async function getAllStudents(schoolId: number) {
     .where(and(eq(users.role, 'student'), eq(users.schoolId, schoolId)));
   return result;
 }
+
+// Guards against a school deactivating its last way in.
+export async function countActiveAdmins(schoolId: number) {
+  const result = await db.select({ count: sql<number>`count(*)::int` })
+    .from(users)
+    .where(and(eq(users.schoolId, schoolId), eq(users.role, 'admin'), eq(users.active, true)));
+  return result[0]?.count ?? 0;
+}

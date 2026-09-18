@@ -103,6 +103,34 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
     }
   };
 
+  const setActive = async (student: any, active: boolean) => {
+    const verb = active ? 'reactivar' : 'dar de baja a';
+    if (!window.confirm(`¿Seguro que quieres ${verb} ${student.name}?${active ? '' : ' No podrá iniciar sesión, pero su historial se conserva.'}`)) return;
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        setError('Tu sesión expiró. Vuelve a iniciar sesión.');
+        return;
+      }
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/admin/users/${student.uid}/active`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ active }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setError(null);
+        fetchStudents();
+      } else {
+        setError(body.error || 'No se pudo actualizar el estado de la cuenta.');
+      }
+    } catch (e) {
+      console.error(e);
+      setError('Error de conexión al actualizar el estado.');
+    }
+  };
+
   const updateStudent = async (uid: string, updates: any) => {
     try {
       const user = auth.currentUser;
@@ -247,7 +275,7 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
               }).map((student) => {
                 const stats = student.stats || {};
                 return (
-                  <tr key={student.uid} className="hover:bg-slate-50 transition-colors">
+                  <tr key={student.uid} className={`transition-colors ${student.active === false ? 'bg-slate-50 opacity-60' : 'hover:bg-slate-50'}`}>
                     <td className="p-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-xl shrink-0">
@@ -258,6 +286,11 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
                           onSave={(v) => updateStudent(student.uid, { name: v })}
                           className="font-black text-slate-800 bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-400 outline-none rounded-lg px-1.5 py-1 min-w-[130px]"
                         />
+                        {student.active === false && (
+                          <span className="shrink-0 px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[9px] font-black uppercase tracking-widest">
+                            De baja
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="p-4 text-slate-500 font-medium">{student.email}</td>
@@ -308,14 +341,23 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
                           <Icon name="arrow_up" size={14} />
                         </button>
                         {canManageEnrollment && (
-                          <button
-                            onClick={() => resetPassword(student)}
-                            disabled={resettingUid === student.uid}
-                            className="bg-slate-100 text-slate-600 p-2 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-40"
-                            title="Restablecer contraseña"
-                          >
-                            <Icon name="key" size={14} />
-                          </button>
+                          <>
+                            <button
+                              onClick={() => resetPassword(student)}
+                              disabled={resettingUid === student.uid}
+                              className="bg-slate-100 text-slate-600 p-2 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-40"
+                              title="Restablecer contraseña"
+                            >
+                              <Icon name="key" size={14} />
+                            </button>
+                            <button
+                              onClick={() => setActive(student, student.active === false)}
+                              className={`p-2 rounded-lg transition-colors ${student.active === false ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-100 text-slate-600 hover:bg-rose-100 hover:text-rose-700'}`}
+                              title={student.active === false ? 'Reactivar cuenta' : 'Dar de baja'}
+                            >
+                              <Icon name={student.active === false ? 'user_check' : 'user_minus'} size={14} />
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>
