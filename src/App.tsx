@@ -1425,11 +1425,11 @@ export default function App() {
   };
 
   const dailyChallenges = [
-    { id: 1, icon: '⚡', title: 'Gana 50 Monedas', target: 50, current: Math.min(coins, 50), reward: { type: 'tickets', amount: 5, label: '5 <Icon name="ticket" size={18} className="inline-block -mt-1" />' }, color: 'bg-yellow-400' },
-    { id: 2, icon: '🎯', title: 'Alcanza Nivel 10', target: 10, current: Math.min(progress, 10), reward: { type: 'coins', amount: 200, label: '200 🪙' }, color: 'bg-green-400' },
-    { id: 3, icon: '💎', title: 'Acumula 10 Tickets', target: 10, current: Math.min(tickets, 10), reward: { type: 'coins', amount: 500, label: '500 🪙' }, color: 'bg-purple-400' },
-    { id: 4, icon: '🏆', title: 'Completa 20 Retos', target: 20, current: Math.min(progress, 20), reward: { type: 'tickets', amount: 10, label: '10 <Icon name="ticket" size={18} className="inline-block -mt-1" />' }, color: 'bg-rose-400' },
-    { id: 5, icon: '🔥', title: 'Racha de 5', target: 5, current: Math.min(streak, 5), reward: { type: 'coins', amount: 300, label: '300 🪙' }, color: 'bg-amber-400' },
+    { id: 1, icon: '⚡', title: 'Gana 50 Monedas', target: 50, current: Math.min(coins, 50), reward: { type: 'tickets', amount: 5 }, color: 'bg-yellow-400' },
+    { id: 2, icon: '🎯', title: 'Alcanza Nivel 10', target: 10, current: Math.min(progress, 10), reward: { type: 'coins', amount: 200 }, color: 'bg-green-400' },
+    { id: 3, icon: '💎', title: 'Acumula 10 Tickets', target: 10, current: Math.min(tickets, 10), reward: { type: 'coins', amount: 500 }, color: 'bg-purple-400' },
+    { id: 4, icon: '🏆', title: 'Completa 20 Retos', target: 20, current: Math.min(progress, 20), reward: { type: 'tickets', amount: 10 }, color: 'bg-rose-400' },
+    { id: 5, icon: '🔥', title: 'Racha de 5', target: 5, current: Math.min(streak, 5), reward: { type: 'coins', amount: 300 }, color: 'bg-amber-400' },
   ];
 
   if (!authChecked || showLoginScreen === null) {

@@ -110,7 +110,11 @@ export const ShellGameMinigame: React.FC<ShellGameMinigameProps> = ({
                 {selected === 1 ? '¡Correcto! Tienes ojo de halcón.' : '¡Oh no! Te han engañado con un holograma.'}
               </h3>
               <div className="font-black text-xl md:text-2xl flex items-center justify-center gap-2 text-white mt-2">
-                {getReward() > 0 ? `Ganaste ${getReward()} Piezas <Icon name="box" size={18} className="inline-block" />` : 'No ganaste piezas <Icon name="x" size={18} className="inline-block text-red-500" />'}
+                {getReward() > 0 ? (
+                  <>Ganaste {getReward()} Piezas <Icon name="box" size={22} className="inline-block" /></>
+                ) : (
+                  <>No ganaste piezas <Icon name="x" size={22} className="inline-block text-rose-400" /></>
+                )}
               </div>
             </div>
             <button onClick={() => onFinish(getReward())} className="w-full text-lg md:text-xl py-3 md:py-4 bg-cyan-500 hover:bg-cyan-400 text-white rounded-[1.5rem] font-black border-cyan-600 border-2 md:border-x-[3px] md:border-t-[3px] md:border-b-[6px] active:border-b-2 active:translate-y-[2px] md:active:border-b-[3px] md:active:translate-y-[3px] transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] cursor-pointer indestructible-btn">
