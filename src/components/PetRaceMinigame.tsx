@@ -30,9 +30,16 @@ export const PetRaceMinigame: React.FC<PetRaceMinigameProps> = ({
   ];
   
   const intervalRef = useRef<any>(null);
+  // Closing the minigame mid-countdown used to leave this one running: it
+  // would finish counting and start the race on an unmounted component,
+  // ticking audibly with nothing left to clear it.
+  const countdownRef = useRef<any>(null);
 
   useEffect(() => {
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
   }, []);
 
   const handlePick = (idx: number) => {
@@ -40,11 +47,11 @@ export const PetRaceMinigame: React.FC<PetRaceMinigameProps> = ({
     playClick();
     setSelectedPet(idx);
     setPhase('countdown');
-    
+
     let count = 3;
     setCountdownNum(count);
-    
-    const countInterval = setInterval(() => {
+
+    countdownRef.current = setInterval(() => {
       count--;
       if (count > 0) {
         setCountdownNum(count);
@@ -53,7 +60,8 @@ export const PetRaceMinigame: React.FC<PetRaceMinigameProps> = ({
         setCountdownNum('¡FUERA!');
         playCatch();
       } else {
-        clearInterval(countInterval);
+        clearInterval(countdownRef.current);
+        countdownRef.current = null;
         startRace();
       }
     }, 1000);

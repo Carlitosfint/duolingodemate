@@ -435,8 +435,6 @@ export default function App() {
     return () => { cancelled = true; };
   }, [authUser, user]);
 
-  const [loginName, setLoginName] = useState("");
-  const [loginAvatar, setLoginAvatar] = useState("fox");
 
   // Central Game States
   const [activeTheme, setActiveTheme] = useState<string>(() => localStorage.getItem('fin_theme') || 'default');
@@ -762,22 +760,6 @@ export default function App() {
     }
   };
 
-  // Login handler
-  const handleLoginSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!loginName.trim()) return;
-    playCatchSound();
-    const newUser = {
-      name: loginName.trim(),
-      avatar: loginAvatar,
-      coins: 200,
-      tickets: 10,
-      progress: 0
-    };
-    setUser(newUser);
-    setShowWelcomeBonus(true);
-    setTutorialStep(1);
-  };
 
   // Pick Welcome box
   const handleWelcomePick = (idx: number) => {
@@ -2041,7 +2023,7 @@ export default function App() {
               </TabTransition>)}
 
               {viewMode === 'teacher_dash' && (<TabTransition type="swipe" key="teacher_dash">
-                <div key="teacher_dash" className="h-full relative bg-white/50 overflow-y-auto p-8">
+                <div key="teacher_dash" className="h-full relative bg-white/50 overflow-y-auto p-4 md:p-8">
                   <TeacherDashboard currentUserRole={user.role} />
                 </div>
               </TabTransition>)}
@@ -2218,7 +2200,7 @@ export default function App() {
           </button>
           <div className="flex flex-col min-w-0 pr-1 max-w-[100px] sm:max-w-[180px]">
             <h2 className={`font-black text-xs md:text-sm truncate leading-none ${currentThemeStyle.textPrimary}`}>{user.name}</h2>
-            <p className="text-[9px] md:text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 md:mt-1">Nivel {progress.level}</p>
+            <p className="text-[9px] md:text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 md:mt-1">Nivel {progress}</p>
           </div>
           
           <div className="flex items-center ml-2 bg-amber-400 rounded-full px-2 md:px-3 py-1 gap-1 border-b-[3px] border-amber-600 shadow-sm">
@@ -2270,7 +2252,7 @@ export default function App() {
           <div className="w-full lg:w-1/2 lg:flex-1 bg-white p-6 md:p-10 flex flex-col relative border-b lg:border-b-0 lg:border-r-[3px] border-slate-100/60 lg:overflow-y-auto no-scrollbar shrink-0">
             <div className="flex justify-center items-center mb-8 gap-2 shrink-0 relative w-full">
               <span className="px-5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-[#E8F0FE] text-blue-700 shadow-sm">
-                DESAFÍO {(viewMode === 'infinite_map' ? (infiniteProgress[selectedTopic!] || 0) : (user?.progress || 0)) + 1} - {currentProblem.data.type.toUpperCase()}
+                DESAFÍO {(viewMode === 'infinite_map' ? (infiniteProgress[selectedTopic!] || 0) : progress) + 1} - {currentProblem.data.type.toUpperCase()}
               </span>
               <button 
                 onClick={() => { playClickSound(); setShowDictLab(true); }}

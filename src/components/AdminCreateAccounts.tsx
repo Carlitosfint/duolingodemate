@@ -42,6 +42,41 @@ export const AdminCreateAccounts: React.FC<{ canManageStaff: boolean }> = ({ can
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkResults, setBulkResults] = useState<CreateResult[] | null>(null);
   const [bulkError, setBulkError] = useState('');
+  const [bulkCopied, setBulkCopied] = useState(false);
+
+  // A bulk load can create up to 200 accounts, and the temp passwords are
+  // shown exactly once — without these the only options were transcribing
+  // them by hand or resetting every account one by one.
+  const createdRows = (bulkResults || []).filter((r) => r.status === 'ok' && r.tempPassword);
+
+  const bulkAsText = () =>
+    createdRows.map((r) => `${r.name}\t${r.email}\t${r.tempPassword}`).join('\n');
+
+  const copyBulk = async () => {
+    try {
+      await navigator.clipboard.writeText(`Nombre\tCorreo\tContraseña temporal\n${bulkAsText()}`);
+      setBulkCopied(true);
+      setTimeout(() => setBulkCopied(false), 2000);
+    } catch {
+      // Clipboard can fail (permissions/insecure context); the table is
+      // still on screen and the CSV download below still works.
+    }
+  };
+
+  const downloadBulkCsv = () => {
+    const escape = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
+    const csv = [
+      ['Nombre', 'Correo', 'Contraseña temporal'].map(escape).join(','),
+      ...createdRows.map((r) => [r.name, r.email || '', r.tempPassword || ''].map(escape).join(',')),
+    ].join('\n');
+    // BOM so Excel opens the accents correctly.
+    const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cuentas-${bulkGrade}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const resetStudentFields = () => {
     setFirstName('');
@@ -347,7 +382,18 @@ export const AdminCreateAccounts: React.FC<{ canManageStaff: boolean }> = ({ can
       )}
 
       {bulkResults && (
-        <div className="w-full overflow-x-auto">
+        <div className="w-full">
+          {createdRows.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3 mb-3">
+              <Button onClick={downloadBulkCsv} color="green" className="px-4 py-2 text-xs">
+                Descargar CSV ({createdRows.length})
+              </Button>
+              <Button onClick={copyBulk} color="slate" className="px-4 py-2 text-xs">
+                {bulkCopied ? '¡Copiado!' : 'Copiar todo'}
+              </Button>
+            </div>
+          )}
+          <div className="w-full overflow-x-auto">
           <table className="w-full text-left border-collapse text-sm">
             <thead>
               <tr className="bg-slate-100 text-slate-500 text-[10px] uppercase font-black tracking-widest">
@@ -370,7 +416,10 @@ export const AdminCreateAccounts: React.FC<{ canManageStaff: boolean }> = ({ can
               ))}
             </tbody>
           </table>
-          <p className="text-xs text-slate-500 mt-2">Anota estas contraseñas ahora, no se volverán a mostrar.</p>
+          </div>
+          <p className="text-xs text-slate-500 mt-2">
+            Descarga o copia estas contraseñas ahora: no se volverán a mostrar.
+          </p>
         </div>
       )}
     </Card>
