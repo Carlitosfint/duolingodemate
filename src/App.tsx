@@ -2043,7 +2043,8 @@ export default function App() {
               </AnimatePresence>
            </div>
 
-           {/* Right Sidebar */}
+           {/* Right Sidebar — student gamification only (challenges, power-ups, coupons); staff manage the school instead. */}
+           {!isStaff && (
            <div className="hidden lg:flex landscape:flex flex-col w-80 landscape:max-lg:w-56 gap-5 landscape:max-lg:gap-3 overflow-y-auto no-scrollbar pb-8 relative z-30">
                {/* Stats HUD */}
                <div className={`flex justify-between items-center rounded-3xl p-5 landscape:max-lg:p-3 border-2 shadow-sm ${currentThemeStyle.headerBg}`}>
@@ -2182,8 +2183,9 @@ export default function App() {
                     </div>
                   )}
                </div>
-               
+
            </div>
+           )}
         </PageReveal>
       ) : (
         <PageReveal key="exercise-app" bgClass={currentThemeStyle.bgClass} isFullScreen className="w-full relative z-30 max-w-[1400px] mx-auto landscape-mini p-4 md:p-6 h-[100dvh] flex flex-col overflow-hidden">

@@ -51,8 +51,9 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
       }
     } catch (e) {
       console.error(e);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const updateStudent = async (uid: string, updates: any) => {

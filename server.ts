@@ -131,11 +131,20 @@ async function startServer() {
       if (!firebaseUser) throw lastError;
     }
 
-    const dbUser = await createSchoolUser({
-      uid: firebaseUser.uid, email: email!, name, schoolId, role: 'student',
-      dni, grade, section, classroom: section ? `${grade} ${section}` : grade,
-    });
-    return { dbUser, tempPassword, email: email! };
+    try {
+      const dbUser = await createSchoolUser({
+        uid: firebaseUser.uid, email: email!, name, schoolId, role: 'student',
+        dni, grade, section, classroom: section ? `${grade} ${section}` : grade,
+      });
+      return { dbUser, tempPassword, email: email! };
+    } catch (error) {
+      // The Firebase account exists (email/password work) but has no DB
+      // row and the caller never sees the password — e.g. a DNI conflict,
+      // caught only now that we try to insert. Without this, that email
+      // is permanently stuck: taken in Firebase, unusable everywhere else.
+      await adminAuth.deleteUser(firebaseUser.uid).catch((e) => console.error('Rollback (firebase user) falló:', e));
+      throw error;
+    }
   }
 
   // Appends "-2", "-3"... until the slug is free. A brand-new school
@@ -375,17 +384,24 @@ async function startServer() {
     if (!name || !email) {
       return res.status(400).json({ error: "Nombre y correo son obligatorios." });
     }
+    let staffFirebaseUser: { uid: string } | undefined;
     try {
       const tempPassword = generateTempPassword();
-      const firebaseUser = await adminAuth.createUser({ email, password: tempPassword, displayName: name });
+      staffFirebaseUser = await adminAuth.createUser({ email, password: tempPassword, displayName: name });
       const dbUser = await createSchoolUser({
-        uid: firebaseUser.uid, email, name, schoolId: caller.schoolId, role: requestedRole,
+        uid: staffFirebaseUser.uid, email, name, schoolId: caller.schoolId, role: requestedRole,
       });
       res.json({ user: dbUser, tempPassword });
     } catch (error: any) {
       console.error(error);
       if (error?.code === 'auth/email-already-exists') {
         return res.status(409).json({ error: "Ya existe una cuenta con ese correo." });
+      }
+      // The DB insert failed after the Firebase account was already
+      // created — without cleanup that email is stuck forever (taken in
+      // Firebase, no row anywhere, and the caller never saw the password).
+      if (staffFirebaseUser) {
+        await adminAuth.deleteUser(staffFirebaseUser.uid).catch((e) => console.error('Rollback (firebase user) falló:', e));
       }
       res.status(500).json({ error: "No se pudo crear la cuenta." });
     }
