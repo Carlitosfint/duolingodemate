@@ -1497,7 +1497,7 @@ export default function App() {
                  {isStaff && (
                    <button onClick={() => setViewMode('teacher_dash')} className={`flex items-center gap-4 ${viewMode === 'teacher_dash' ? 'text-blue-600' : `${currentThemeStyle.textPrimary} hover:bg-slate-100`} font-bold p-3 rounded-2xl transition-all relative`}>
                       {viewMode === 'teacher_dash' && <motion.div layoutId="nav-pill" className="absolute inset-0 bg-blue-50/80 border-2 border-blue-200 rounded-2xl z-0" transition={{ type: 'spring', stiffness: 300, damping: 30 }} />}
-                      <Icon name="users" className="relative z-10" /> <span className="relative z-10">Alumnos</span>
+                      <Icon name="users" className="relative z-10" /> <span className="relative z-10">Usuario</span>
                    </button>
                  )}
               </nav>
@@ -2023,7 +2023,7 @@ export default function App() {
               </TabTransition>)}
 
               {viewMode === 'teacher_dash' && (<TabTransition type="swipe" key="teacher_dash">
-                <div key="teacher_dash" className="flex-1 relative bg-white/50 overflow-hidden p-8 overflow-y-auto">
+                <div key="teacher_dash" className="h-full relative bg-white/50 overflow-y-auto p-8">
                   <TeacherDashboard currentUserRole={user.role} />
                 </div>
               </TabTransition>)}
@@ -2422,7 +2422,7 @@ export default function App() {
           {isStaff && (
             <button onClick={() => setViewMode('teacher_dash')} className={`p-2 rounded-xl flex flex-col items-center gap-1 ${viewMode === 'teacher_dash' ? 'text-blue-500' : 'text-slate-400'}`}>
               <Icon name="users" />
-              <span className="text-[9px] font-black uppercase tracking-wider">Alumnos</span>
+              <span className="text-[9px] font-black uppercase tracking-wider">Usuario</span>
             </button>
           )}
 
