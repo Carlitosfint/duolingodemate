@@ -455,6 +455,7 @@ export default function App() {
         }));
         setInfiniteProgress(prev => mergeByKey(prev, dbUser.infiniteProgress));
         setStats(prev => ((dbUser.stats?.solved ?? 0) > (prev?.solved ?? 0) ? dbUser.stats : prev));
+        setMistakesList(prev => ((dbUser.mistakes?.length ?? 0) > prev.length ? dbUser.mistakes : prev));
         setAlbumsState(prev => {
           const owned = (s: Record<string, AlbumState>) =>
             Object.values(s || {}).reduce((n, a: any) => n + (a?.piecesOwned?.length || 0), 0);
@@ -557,7 +558,7 @@ export default function App() {
 
   // UI inputs & feedbacks
   const [inputAnswer, setInputAnswer] = useState("");
-  const [mistakesList, setMistakesList] = useState<{ problem: string; userAnswer: string; correctAnswer: string; explanation: string }[]>(() => {
+  const [mistakesList, setMistakesList] = useState<{ problem: string; userAnswer: string; correctAnswer: string; explanation: string; topic?: string }[]>(() => {
     const saved = localStorage.getItem('fin_mistakes');
     return saved ? JSON.parse(saved) : [];
   });
@@ -677,8 +678,8 @@ export default function App() {
   // in localStorage: the teacher dashboard showed zeros for every student,
   // and logging out (which deliberately clears local state on shared school
   // computers) destroyed the student's history for good.
-  const syncStateRef = useRef({ user, stats, albumsState, infiniteProgress, authUser });
-  syncStateRef.current = { user, stats, albumsState, infiniteProgress, authUser };
+  const syncStateRef = useRef({ user, stats, albumsState, infiniteProgress, mistakesList, authUser });
+  syncStateRef.current = { user, stats, albumsState, infiniteProgress, mistakesList, authUser };
 
   const syncToServer = useCallback(async () => {
     const snapshot = syncStateRef.current;
@@ -696,6 +697,7 @@ export default function App() {
           infiniteProgress: snapshot.infiniteProgress,
           stats: snapshot.stats,
           albums: snapshot.albumsState,
+          mistakes: snapshot.mistakesList,
           avatar: snapshot.user.avatar,
           name: snapshot.user.name,
           setupCompleted: snapshot.user.setupCompleted,
@@ -711,7 +713,7 @@ export default function App() {
     if (!user || !authUser) return;
     const timer = setTimeout(syncToServer, 1500);
     return () => clearTimeout(timer);
-  }, [user, stats, albumsState, infiniteProgress, authUser, syncToServer]);
+  }, [user, stats, albumsState, infiniteProgress, mistakesList, authUser, syncToServer]);
 
   // Closing the tab mid-debounce would otherwise drop the last answers.
   useEffect(() => {
@@ -1153,7 +1155,10 @@ export default function App() {
             problem: currentProblem.data.intro,
             userAnswer: inputAnswer.trim(),
             correctAnswer: currentProblem.data.expectedAnswer,
-            explanation: currentProblem.data.explanation
+            explanation: currentProblem.data.explanation,
+            // What makes the teacher's view possible: without the topic a
+            // mistake is just one problem, not a pattern across the class.
+            topic: currentProblem.data.type,
           },
           ...prev
         ]);

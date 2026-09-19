@@ -73,6 +73,10 @@ export const users = pgTable('users', {
     ticketsByTopic: {}
   }),
   albums: jsonb('albums').default({}),
+  // The student's recent misses, each tagged with its topic. Synced so the
+  // teacher can see what a classroom struggles with — until now this lived
+  // only in the student's own browser, where nobody else could ever read it.
+  mistakes: jsonb('mistakes').default([]),
   createdAt: timestamp('created_at').defaultNow(),
   setupCompleted: boolean('setup_completed').default(false),
   classroom: text('classroom').default(''),

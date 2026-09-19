@@ -5,6 +5,7 @@ import { auth } from '../lib/firebase.ts';
 import { AdminCreateAccounts } from './AdminCreateAccounts';
 import { SchoolSettings } from './SchoolSettings';
 import { SchoolStaff } from './SchoolStaff';
+import { ClassroomMistakes } from './ClassroomMistakes';
 
 // Defined at module scope (not inside TeacherDashboard) so it keeps a
 // stable identity across re-renders — otherwise React would remount it
@@ -209,6 +210,8 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string; currentUserU
           </Button>
         </div>
       </div>
+
+      <ClassroomMistakes classroom={selectedClassroomFilter === 'all' || selectedClassroomFilter === 'none' ? '' : selectedClassroomFilter} />
 
       {error && (
         <div className="flex items-start gap-3 p-4 rounded-2xl bg-rose-50 border-2 border-rose-200 text-rose-700 font-bold text-sm">

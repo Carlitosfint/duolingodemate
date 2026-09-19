@@ -327,6 +327,21 @@ async function startServer() {
   const plainObject = (value: any) =>
     value && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
 
+  // Free text written by the client, so each field is length-capped and the
+  // list is trimmed: without a bound this column grows without limit.
+  const MAX_MISTAKES = 50;
+  const cleanMistakes = (value: any) => {
+    if (!Array.isArray(value)) return undefined;
+    const str = (v: any, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
+    return value.slice(0, MAX_MISTAKES).map((m: any) => ({
+      problem: str(m?.problem, 600),
+      userAnswer: str(m?.userAnswer, 60),
+      correctAnswer: str(m?.correctAnswer, 60),
+      explanation: str(m?.explanation, 1200),
+      topic: str(m?.topic, 60),
+    }));
+  };
+
   app.post("/api/user/sync", requireAuth, async (req: any, res) => {
     try {
       const body = req.body || {};
@@ -338,6 +353,7 @@ async function startServer() {
         courseProgress: plainObject(body.courseProgress),
         stats: plainObject(body.stats),
         albums: plainObject(body.albums),
+        mistakes: cleanMistakes(body.mistakes),
         avatar: typeof body.avatar === 'string' ? body.avatar.slice(0, 40) : undefined,
         name: typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 120) : undefined,
         setupCompleted: typeof body.setupCompleted === 'boolean' ? body.setupCompleted : undefined,
@@ -573,6 +589,44 @@ async function startServer() {
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Failed to update student" });
+    }
+  });
+
+  // What the classroom is getting wrong, by topic. Aggregated here rather
+  // than shipping every student's mistakes to the browser: the teacher wants
+  // the pattern ("half of 5to A misses Mezclas"), not 300 individual misses.
+  app.get("/api/teacher/mistakes", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    if (caller.role !== 'teacher' && caller.role !== 'admin' && caller.role !== 'secretary') {
+      return res.status(403).json({ error: "No autorizado." });
+    }
+    try {
+      const classroom = typeof req.query.classroom === 'string' ? req.query.classroom : '';
+      const students = await getAllStudents(caller.schoolId);
+      const scoped = students.filter((s: any) =>
+        s.active !== false && (!classroom || s.classroom === classroom)
+      );
+
+      const byTopic = new Map<string, { topic: string; misses: number; students: Set<string> }>();
+      for (const student of scoped) {
+        const mistakes = Array.isArray(student.mistakes) ? student.mistakes : [];
+        for (const m of mistakes as any[]) {
+          const topic = (m?.topic || '').trim() || 'Sin tema';
+          if (!byTopic.has(topic)) byTopic.set(topic, { topic, misses: 0, students: new Set() });
+          const entry = byTopic.get(topic)!;
+          entry.misses += 1;
+          entry.students.add(student.uid);
+        }
+      }
+
+      const topics = Array.from(byTopic.values())
+        .map((t) => ({ topic: t.topic, misses: t.misses, students: t.students.size }))
+        .sort((a, b) => b.misses - a.misses);
+
+      res.json({ topics, studentsConsidered: scoped.length });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudieron cargar los errores del salón." });
     }
   });
 
