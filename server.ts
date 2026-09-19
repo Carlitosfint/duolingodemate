@@ -7,6 +7,13 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+import { canManageEnrollment, editableFieldsFor, visibleStudentsFor, ENROLLMENT_FIELDS } from './src/lib/permissions.ts';
+import {
+  VALID_GRADES, EMAIL_REGEX, EMAIL_DOMAIN_REGEX, MAX_CURRENCY, MAX_PROGRESS,
+  slugify, normalizeEmailDomain, studentEmailDomain, generateStudentLocalPart,
+  isUniqueViolation, clampInt, plainObject, cleanMistakes,
+} from './src/lib/validation.ts';
+
 // Readable temp password (no ambiguous 0/O/1/l), handed to the admin
 // once at account-creation time and never stored in plain text.
 function generateTempPassword(): string {
@@ -16,60 +23,7 @@ function generateTempPassword(): string {
     .join("");
 }
 
-const VALID_GRADES = ['3ro', '4to', '5to'];
-
-// Deliberately not DNI-based — the login address shouldn't expose the
-// student's national ID. {year}{4 random digits}, e.g. "20265473". Not
-// guaranteed unique on its own (unlike DNI), so callers must retry on
-// a Firebase "already exists" collision — see createStudentAccount.
-function generateStudentLocalPart(): string {
-  const year = new Date().getFullYear();
-  const randomDigits = Math.floor(1000 + Math.random() * 9000);
-  return `${year}${randomDigits}`;
-}
-
-// A school's chosen domain (e.g. "aloe.com" -> 20265473@aloe.com), or
-// "{slug}.alumno.com" until it picks one.
-function studentEmailDomain(school: { slug: string; emailDomain?: string | null } | undefined): string {
-  return school?.emailDomain || `${school?.slug || 'colegio'}.alumno.com`;
-}
-
-function isUniqueViolation(error: any): boolean {
-  return error?.cause?.code === '23505' || error?.code === '23505';
-}
 const isDniConflict = isUniqueViolation;
-
-// School staff hierarchy: admin (director) > secretary (matrícula) >
-// teacher > student. A secretary can enroll/transfer students — the
-// job an admin would otherwise have to do themselves or hand off by
-// making that person a full admin — but never creates other staff.
-function canManageEnrollment(role: string): boolean {
-  return role === 'admin' || role === 'secretary';
-}
-
-const EMAIL_DOMAIN_REGEX = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-// "Colegio Ángeles de Jesús" -> "colegio-angeles-de-jesus". Same shape
-// as the slugs used in src/db/seed.ts, so both paths produce URLs/
-// fallback domains that look the same either way.
-function slugify(name: string): string {
-  const base = name
-    .normalize('NFD').replace(/\p{Mn}/gu, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60);
-  return base || 'colegio';
-}
-
-// The school types just an alias ("aloe") or a full domain ("aloe.com");
-// either way we end up with a real-looking domain for student emails.
-function normalizeEmailDomain(raw: string): string {
-  let domain = raw.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^@/, '').replace(/\/.*$/, '');
-  if (domain && !domain.includes('.')) domain += '.com';
-  return domain;
-}
 
 async function startServer() {
   const app = express();
@@ -378,30 +332,6 @@ async function startServer() {
   // past the end of the map, a million tickets). Enrollment fields — role,
   // schoolId, dni, grade, section, email — are never read from the body, so
   // this route can't be used to change who you are or what school you're in.
-  const MAX_CURRENCY = 10_000_000;
-  const MAX_PROGRESS = 100;
-  const clampInt = (value: any, max: number): number | undefined => {
-    if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
-    return Math.min(max, Math.max(0, Math.floor(value)));
-  };
-  const plainObject = (value: any) =>
-    value && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
-
-  // Free text written by the client, so each field is length-capped and the
-  // list is trimmed: without a bound this column grows without limit.
-  const MAX_MISTAKES = 50;
-  const cleanMistakes = (value: any) => {
-    if (!Array.isArray(value)) return undefined;
-    const str = (v: any, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
-    return value.slice(0, MAX_MISTAKES).map((m: any) => ({
-      problem: str(m?.problem, 600),
-      userAnswer: str(m?.userAnswer, 60),
-      correctAnswer: str(m?.correctAnswer, 60),
-      explanation: str(m?.explanation, 1200),
-      topic: str(m?.topic, 60),
-    }));
-  };
-
   app.post("/api/user/sync", requireAuth, async (req: any, res) => {
     try {
       const body = req.body || {};
@@ -621,25 +551,6 @@ async function startServer() {
   // read from the body — without this whitelist the old code applied
   // req.body verbatim, so a crafted request could escalate a student to
   // admin or move them to a different school.
-  // Enrollment data: who the student is and where they're registered. The
-  // DNI is unique platform-wide and the section decides the roster, so this
-  // is registrar work — the admin and the secretary, not every teacher.
-  const ENROLLMENT_FIELDS = ['name', 'dni', 'grade', 'section', 'classroom'] as const;
-  // Classroom incentives. A teacher handing out coins or moving a student
-  // past a unit the class already covered is them doing their job.
-  const TEACHING_FIELDS = ['avatar', 'coins', 'tickets', 'progress'] as const;
-
-  const editableFieldsFor = (role: string): readonly string[] =>
-    canManageEnrollment(role) ? [...ENROLLMENT_FIELDS, ...TEACHING_FIELDS] : TEACHING_FIELDS;
-
-  // A teacher only sees the classrooms assigned to them; empty means the
-  // whole school. Admin and secretary always see everyone.
-  const visibleStudentsFor = (caller: any, students: any[]) => {
-    const assigned: string[] = Array.isArray(caller.classrooms) ? caller.classrooms : [];
-    if (caller.role !== 'teacher' || assigned.length === 0) return students;
-    return students.filter((s: any) => assigned.includes(s.classroom));
-  };
-
   app.post("/api/teacher/student/:uid", requireAuth, async (req: any, res) => {
     try {
       const caller = req.dbUser;
