@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { adminAuth } from '../lib/firebase-admin.ts';
 import { DecodedIdToken } from 'firebase-admin/auth';
 import { getUserState } from '../db/users.ts';
+import { getSchool } from '../db/schools.ts';
 import { users } from '../db/schema.ts';
 
 export interface AuthRequest extends Request {
@@ -11,6 +12,44 @@ export interface AuthRequest extends Request {
   // scope whatever it does.
   dbUser?: typeof users.$inferSelect;
 }
+
+// Who operates the platform itself, read from the environment rather than
+// from a role in the database. Two reasons: a users row must belong to a
+// school (schoolId is NOT NULL) and a platform operator belongs to none;
+// and more importantly this leaves no in-app path to the role — granting it
+// takes server access, so no school admin can ever escalate into it.
+const platformAdminEmails = () =>
+  (process.env.PLATFORM_ADMIN_EMAILS || '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+
+export const isPlatformAdminEmail = (email?: string | null) =>
+  !!email && platformAdminEmails().includes(email.toLowerCase());
+
+// Platform routes deliberately skip the school user lookup: the operator
+// has no school, and nothing under /api/platform may read student data.
+export const requirePlatformAdmin = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized: Missing token' });
+  }
+  try {
+    const decoded = await adminAuth.verifyIdToken(authHeader.split('Bearer ')[1]);
+    if (!isPlatformAdminEmail(decoded.email)) {
+      return res.status(403).json({ error: 'No autorizado.' });
+    }
+    req.user = decoded;
+    next();
+  } catch (error) {
+    console.error('Error verifying Firebase ID token:', error);
+    return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+  }
+};
 
 export const requireAuth = async (
   req: AuthRequest,
@@ -46,6 +85,15 @@ export const requireAuth = async (
     // window, so the session stops working the moment they're given leave.
     if (dbUser.active === false) {
       return res.status(403).json({ error: 'Tu cuenta está dada de baja. Contacta a tu colegio.' });
+    }
+    // schools.status existed but nothing ever read it, so a suspended school
+    // kept working exactly like a paying one.
+    const school = await getSchool(dbUser.schoolId);
+    if (school && school.status !== 'active') {
+      return res.status(403).json({
+        error: 'El acceso de tu colegio está suspendido. Contacta al administrador de tu colegio.',
+        code: 'school_suspended',
+      });
     }
     req.dbUser = dbUser;
     next();

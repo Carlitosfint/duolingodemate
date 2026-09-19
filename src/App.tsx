@@ -26,6 +26,7 @@ import { generateMathProblem } from './utils/math';
 import { useAnimatedNumber } from './utils/animated';
 import { Button, Card, BentoTile, FloatingMathBackground } from './components/UI';
 import { ConfettiOverlay } from './components/ConfettiOverlay';
+import { PlatformConsole } from './components/PlatformConsole';
 import { Toast, ToastTone } from './components/Toast';
 import { AudioToggle } from './components/AudioToggle';
 import { ColegioLogin } from './components/ColegioLogin';
@@ -393,6 +394,9 @@ export default function App() {
   }, [authChecked, authUser, showLoginScreen]);
 
   const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
+  // Whoever runs the platform has no school, so /api/user rejects them. That
+  // rejection is the cue to check whether this is an operator instead.
+  const [platformAdmin, setPlatformAdmin] = useState<{ email?: string } | null>(null);
   // Read inside the hydration effect, which only depends on authUser.
   const userRef = useRef(user);
   userRef.current = user;
@@ -423,7 +427,19 @@ export default function App() {
           // when there's no cached profile to fall back on — otherwise they
           // keep playing offline and the next successful sync catches up.
           if (res.status === 403) {
-            setProfileLoadError('No hay una cuenta registrada para este usuario. Contacta a tu colegio.');
+            const platform = await fetch('/api/platform/me', { headers: { Authorization: `Bearer ${token}` } })
+              .then((r) => r.json())
+              .catch(() => ({ isPlatformAdmin: false }));
+            if (cancelled) return;
+            if (platform.isPlatformAdmin) {
+              setPlatformAdmin({ email: platform.email });
+              return;
+            }
+            // The server distinguishes "no account" from a deactivated account
+            // and a suspended school; showing its message keeps the student
+            // from being told the wrong reason.
+            const body = await res.json().catch(() => ({}));
+            setProfileLoadError(body.error || 'No hay una cuenta registrada para este usuario. Contacta a tu colegio.');
           } else if (!userRef.current) {
             setProfileLoadError('No se pudo cargar tu perfil. Intenta de nuevo.');
           }
@@ -1449,6 +1465,10 @@ export default function App() {
     return showRegisterScreen
       ? <SchoolRegister onBackToLogin={() => setShowRegisterScreen(false)} />
       : <ColegioLogin onLoginSuccess={() => setShowLoginScreen(false)} onRegisterSchool={() => setShowRegisterScreen(true)} />;
+  }
+
+  if (platformAdmin) {
+    return <PlatformConsole email={platformAdmin.email} onLogout={handleLogout} />;
   }
 
   if (profileLoadError) {

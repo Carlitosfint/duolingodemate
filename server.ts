@@ -78,9 +78,9 @@ async function startServer() {
   app.use(express.json());
 
   // Database endpoints
-  const { requireAuth } = await import('./src/middleware/auth.ts');
+  const { requireAuth, requirePlatformAdmin, isPlatformAdminEmail } = await import('./src/middleware/auth.ts');
   const { getUserState, updateUserState, getAllStudents, createSchoolUser, countStudentsBySection, getUserByDni, countActiveAdmins, getSchoolStaff } = await import('./src/db/users.ts');
-  const { getSchool, updateSchool, createSchool, getSchoolBySlug, getSchoolByEmailDomain, deleteSchool } = await import('./src/db/schools.ts');
+  const { getSchool, updateSchool, createSchool, getSchoolBySlug, getSchoolByEmailDomain, deleteSchool, getSchoolsOverview } = await import('./src/db/schools.ts');
   const { adminAuth } = await import('./src/lib/firebase-admin.ts');
 
   // Section with the fewest students of this grade at this school right
@@ -255,6 +255,66 @@ async function startServer() {
     }
 
     res.json({ school, admin: dbUser, tempPassword });
+  });
+
+  // ---- Platform console ----
+  // Whoever runs the platform, not a school. Nothing here returns student
+  // rows: the operator needs to know a school exists, how big it is and
+  // whether it should keep working — not who studies there.
+  const SCHOOL_STATUSES = ['active', 'suspended'];
+
+  app.get("/api/platform/me", async (req: any, res) => {
+    const header = req.headers.authorization;
+    if (!header?.startsWith('Bearer ')) return res.json({ isPlatformAdmin: false });
+    try {
+      const decoded = await adminAuth.verifyIdToken(header.split('Bearer ')[1]);
+      res.json({ isPlatformAdmin: isPlatformAdminEmail(decoded.email), email: decoded.email });
+    } catch {
+      res.json({ isPlatformAdmin: false });
+    }
+  });
+
+  app.get("/api/platform/schools", requirePlatformAdmin, async (_req: any, res) => {
+    try {
+      res.json(await getSchoolsOverview());
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudieron cargar los colegios." });
+    }
+  });
+
+  app.post("/api/platform/schools/:id/status", requirePlatformAdmin, async (req: any, res) => {
+    const status = req.body?.status;
+    if (!SCHOOL_STATUSES.includes(status)) {
+      return res.status(400).json({ error: "Estado inválido." });
+    }
+    try {
+      const schoolId = Number(req.params.id);
+      if (!Number.isInteger(schoolId)) return res.status(400).json({ error: "Colegio inválido." });
+      const school = await getSchool(schoolId);
+      if (!school) return res.status(404).json({ error: "No existe ese colegio." });
+      const updated = await updateSchool(schoolId, { status });
+      res.json({ school: updated });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudo cambiar el estado del colegio." });
+    }
+  });
+
+  app.post("/api/platform/schools/:id/plan", requirePlatformAdmin, async (req: any, res) => {
+    const plan = String(req.body?.plan || '').trim().slice(0, 40);
+    if (!plan) return res.status(400).json({ error: "Indica el plan." });
+    try {
+      const schoolId = Number(req.params.id);
+      if (!Number.isInteger(schoolId)) return res.status(400).json({ error: "Colegio inválido." });
+      const school = await getSchool(schoolId);
+      if (!school) return res.status(404).json({ error: "No existe ese colegio." });
+      const updated = await updateSchool(schoolId, { plan });
+      res.json({ school: updated });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudo cambiar el plan." });
+    }
   });
 
   app.get("/api/user", requireAuth, async (req: any, res) => {
