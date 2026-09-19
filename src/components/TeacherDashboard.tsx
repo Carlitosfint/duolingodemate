@@ -4,6 +4,7 @@ import { Icon } from './CustomIcons';
 import { auth } from '../lib/firebase.ts';
 import { AdminCreateAccounts } from './AdminCreateAccounts';
 import { SchoolSettings } from './SchoolSettings';
+import { SchoolStaff } from './SchoolStaff';
 
 // Defined at module scope (not inside TeacherDashboard) so it keeps a
 // stable identity across re-renders — otherwise React would remount it
@@ -30,7 +31,7 @@ const EditableText: React.FC<{ value: string; onSave: (value: string) => void; p
 
 const GRADES = ['3ro', '4to', '5to'] as const;
 
-export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ currentUserRole }) => {
+export const TeacherDashboard: React.FC<{ currentUserRole?: string; currentUserUid?: string }> = ({ currentUserRole, currentUserUid }) => {
   // Enrollment duties (resetting a student's password, deactivating them)
   // belong to the admin and the secretary, not to every teacher.
   const canManageEnrollment = currentUserRole === 'admin' || currentUserRole === 'secretary';
@@ -185,6 +186,8 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
       {(currentUserRole === 'admin' || currentUserRole === 'secretary') && (
         <AdminCreateAccounts canManageStaff={currentUserRole === 'admin'} />
       )}
+
+      {currentUserRole === 'admin' && <SchoolStaff currentUserUid={currentUserUid} />}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-2xl sm:text-3xl font-black text-slate-800">Panel de Profesor / Admin</h2>

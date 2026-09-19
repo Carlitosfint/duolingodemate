@@ -79,7 +79,7 @@ async function startServer() {
 
   // Database endpoints
   const { requireAuth } = await import('./src/middleware/auth.ts');
-  const { getUserState, updateUserState, getAllStudents, createSchoolUser, countStudentsBySection, getUserByDni, countActiveAdmins } = await import('./src/db/users.ts');
+  const { getUserState, updateUserState, getAllStudents, createSchoolUser, countStudentsBySection, getUserByDni, countActiveAdmins, getSchoolStaff } = await import('./src/db/users.ts');
   const { getSchool, updateSchool, createSchool, getSchoolBySlug, getSchoolByEmailDomain, deleteSchool } = await import('./src/db/schools.ts');
   const { adminAuth } = await import('./src/lib/firebase-admin.ts');
 
@@ -573,6 +573,23 @@ async function startServer() {
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Failed to update student" });
+    }
+  });
+
+  // Staff roster. Admin only: a secretary handles enrollment, not who works
+  // at the school, and a teacher has no business listing their colleagues'
+  // accounts.
+  app.get("/api/admin/staff", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    if (caller.role !== 'admin') {
+      return res.status(403).json({ error: "Solo un administrador puede ver las cuentas del personal." });
+    }
+    try {
+      const staff = await getSchoolStaff(caller.schoolId);
+      res.json(staff);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudo cargar el personal del colegio." });
     }
   });
 
