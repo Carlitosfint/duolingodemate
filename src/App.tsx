@@ -1,5 +1,4 @@
-import ReactDOM from 'react-dom';
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import { motion, AnimatePresence, usePresence, useMotionValue, useMotionTemplate, animate } from 'motion/react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { auth } from './lib/firebase';
@@ -26,11 +25,15 @@ import { generateMathProblem } from './utils/math';
 import { useAnimatedNumber } from './utils/animated';
 import { Button, Card, BentoTile, FloatingMathBackground } from './components/UI';
 import { ConfettiOverlay } from './components/ConfettiOverlay';
-import { PlatformConsole } from './components/PlatformConsole';
+const PlatformConsole = lazy(() => import('./components/PlatformConsole').then(m => ({ default: m.PlatformConsole })));
+const SchoolRegister = lazy(() => import('./components/SchoolRegister').then(m => ({ default: m.SchoolRegister })));
+const TeacherDashboard = lazy(() => import('./components/TeacherDashboard').then(m => ({ default: m.TeacherDashboard })));
+const ShellGameMinigame = lazy(() => import('./components/ShellGameMinigame').then(m => ({ default: m.ShellGameMinigame })));
+const PetRaceMinigame = lazy(() => import('./components/PetRaceMinigame').then(m => ({ default: m.PetRaceMinigame })));
+
 import { Toast, ToastTone } from './components/Toast';
 import { AudioToggle } from './components/AudioToggle';
 import { ColegioLogin } from './components/ColegioLogin';
-import { SchoolRegister } from './components/SchoolRegister';
 
 import { ProgressMap } from './components/ProgressMap';
 import { InitialSetup } from './components/InitialSetup';
@@ -40,21 +43,24 @@ import { DictLabModal } from './components/DictLabModal';
 import { AlbumModal } from './components/AlbumModal';
 import { MistakesModal } from './components/MistakesModal';
 import { ProfileModal } from './components/ProfileModal';
-import { TeacherDashboard } from './components/TeacherDashboard';
 import { TeacherModeModal } from './components/TeacherModeModal';
 import { WelcomeBonusModal } from './components/WelcomeBonusModal';
 import { DailyChallengesModal } from './components/DailyChallengesModal';
 import { ChestModal } from './components/ChestModal';
 import { TicketModal } from './components/TicketModal';
 import { ProgressModal } from './components/ProgressModal';
-import { ShellGameMinigame } from './components/ShellGameMinigame';
-import { PetRaceMinigame } from './components/PetRaceMinigame';
 import { UserState } from './types';
 import { THEME_STYLES } from './data';
 import { Icon } from './components/CustomIcons';
 import { Avatar, AVATAR_OPTIONS } from './components/Avatar';
 
 
+
+const Loading = () => (
+  <div className="min-h-screen w-full flex items-center justify-center bg-slate-50">
+    <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+  </div>
+);
 
 let globalLastClick = { x: 0, y: 0 };
 if (typeof window !== 'undefined') {
@@ -378,6 +384,19 @@ export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
   const [showLoginScreen, setShowLoginScreen] = useState<boolean | null>(null);
   const [showRegisterScreen, setShowRegisterScreen] = useState(false);
+
+  // Los minijuegos se cargan aparte, y aparecen de golpe cuando el alumno cae
+  // en uno: se traen en cuanto el navegador está libre para que no haya espera.
+  useEffect(() => {
+    const warm = () => {
+      import('./components/ShellGameMinigame');
+      import('./components/PetRaceMinigame');
+    };
+    const idle = (window as any).requestIdleCallback;
+    if (idle) { const id = idle(warm); return () => (window as any).cancelIdleCallback?.(id); }
+    const t = setTimeout(warm, 3000);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
@@ -1463,12 +1482,12 @@ export default function App() {
 
   if (showLoginScreen) {
     return showRegisterScreen
-      ? <SchoolRegister onBackToLogin={() => setShowRegisterScreen(false)} />
+      ? <Suspense fallback={<Loading />}><SchoolRegister onBackToLogin={() => setShowRegisterScreen(false)} /></Suspense>
       : <ColegioLogin onLoginSuccess={() => setShowLoginScreen(false)} onRegisterSchool={() => setShowRegisterScreen(true)} />;
   }
 
   if (platformAdmin) {
-    return <PlatformConsole email={platformAdmin.email} onLogout={handleLogout} />;
+    return <Suspense fallback={<Loading />}><PlatformConsole email={platformAdmin.email} onLogout={handleLogout} /></Suspense>;
   }
 
   if (profileLoadError) {
@@ -2145,7 +2164,7 @@ export default function App() {
 
               {viewMode === 'teacher_dash' && (<TabTransition type="swipe" key="teacher_dash">
                 <div key="teacher_dash" className="h-full relative bg-white/50 overflow-y-auto p-4 md:p-8">
-                  <TeacherDashboard currentUserRole={user.role} currentUserUid={authUser?.uid} />
+                  <Suspense fallback={<Loading />}><TeacherDashboard currentUserRole={user.role} currentUserUid={authUser?.uid} /></Suspense>
                 </div>
               </TabTransition>)}
 
@@ -2689,24 +2708,28 @@ export default function App() {
       )}
 
       {showShellGame && (
-        <ShellGameMinigame 
-          onFinish={onFinishShellGame} 
-          playClick={playClickSound} 
-          playCatch={playCatchSound} 
-          playTick={playRouletteTick} 
-          playRainbow={playRainbowSound} 
-          playError={playErrorAlertSound} 
-        />
+        <Suspense fallback={null}>
+          <ShellGameMinigame 
+            onFinish={onFinishShellGame} 
+            playClick={playClickSound} 
+            playCatch={playCatchSound} 
+            playTick={playRouletteTick} 
+            playRainbow={playRainbowSound} 
+            playError={playErrorAlertSound} 
+          />
+        </Suspense>
       )}
 
       {showPetRace && (
-        <PetRaceMinigame 
-          onFinish={onFinishPetRace} 
-          playClick={playClickSound} 
-          playCatch={playCatchSound} 
-          playTick={playRouletteTick} 
-          playRainbow={playRainbowSound} 
-        />
+        <Suspense fallback={null}>
+          <PetRaceMinigame 
+            onFinish={onFinishPetRace} 
+            playClick={playClickSound} 
+            playCatch={playCatchSound} 
+            playTick={playRouletteTick} 
+            playRainbow={playRainbowSound} 
+          />
+        </Suspense>
       )}
 
       <AudioToggle />
