@@ -549,7 +549,7 @@ async function startServer() {
         return res.status(403).json({ error: "Only teachers can view this" });
       }
       const students = await getAllStudents(caller.schoolId);
-      res.json(students);
+      res.json(visibleStudentsFor(caller, students));
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Failed to fetch students" });
@@ -561,10 +561,24 @@ async function startServer() {
   // read from the body — without this whitelist the old code applied
   // req.body verbatim, so a crafted request could escalate a student to
   // admin or move them to a different school.
-  const STUDENT_EDITABLE_FIELDS = [
-    'name', 'avatar', 'dni', 'grade', 'section', 'classroom',
-    'coins', 'tickets', 'progress',
-  ] as const;
+  // Enrollment data: who the student is and where they're registered. The
+  // DNI is unique platform-wide and the section decides the roster, so this
+  // is registrar work — the admin and the secretary, not every teacher.
+  const ENROLLMENT_FIELDS = ['name', 'dni', 'grade', 'section', 'classroom'] as const;
+  // Classroom incentives. A teacher handing out coins or moving a student
+  // past a unit the class already covered is them doing their job.
+  const TEACHING_FIELDS = ['avatar', 'coins', 'tickets', 'progress'] as const;
+
+  const editableFieldsFor = (role: string): readonly string[] =>
+    canManageEnrollment(role) ? [...ENROLLMENT_FIELDS, ...TEACHING_FIELDS] : TEACHING_FIELDS;
+
+  // A teacher only sees the classrooms assigned to them; empty means the
+  // whole school. Admin and secretary always see everyone.
+  const visibleStudentsFor = (caller: any, students: any[]) => {
+    const assigned: string[] = Array.isArray(caller.classrooms) ? caller.classrooms : [];
+    if (caller.role !== 'teacher' || assigned.length === 0) return students;
+    return students.filter((s: any) => assigned.includes(s.classroom));
+  };
 
   app.post("/api/teacher/student/:uid", requireAuth, async (req: any, res) => {
     try {
@@ -580,8 +594,21 @@ async function startServer() {
       if (!target || target.schoolId !== caller.schoolId || target.role !== 'student') {
         return res.status(404).json({ error: "Student not found" });
       }
+      // A teacher assigned to specific classrooms can't reach around them.
+      if (visibleStudentsFor(caller, [target]).length === 0) {
+        return res.status(403).json({ error: "Ese alumno no pertenece a tus salones." });
+      }
+      const allowed = editableFieldsFor(caller.role);
+      // Rejected rather than silently dropped: a teacher who tries to fix a
+      // DNI should be told it isn't theirs to change, not watch it revert.
+      const forbidden = ENROLLMENT_FIELDS.filter((f) => f in req.body && !allowed.includes(f));
+      if (forbidden.length > 0) {
+        return res.status(403).json({
+          error: "Los datos de matrícula (nombre, DNI, grado y sección) solo los cambia el administrador o el secretario.",
+        });
+      }
       const updates: Record<string, any> = {};
-      for (const field of STUDENT_EDITABLE_FIELDS) {
+      for (const field of allowed) {
         if (field in req.body) updates[field] = req.body[field];
       }
       const updatedUser = await updateUserState(targetUid, updates);
@@ -602,7 +629,7 @@ async function startServer() {
     }
     try {
       const classroom = typeof req.query.classroom === 'string' ? req.query.classroom : '';
-      const students = await getAllStudents(caller.schoolId);
+      const students = visibleStudentsFor(caller, await getAllStudents(caller.schoolId));
       const scoped = students.filter((s: any) =>
         s.active !== false && (!classroom || s.classroom === classroom)
       );
@@ -644,6 +671,39 @@ async function startServer() {
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "No se pudo cargar el personal del colegio." });
+    }
+  });
+
+  // Which classrooms a teacher is responsible for. Admin only, and only on
+  // teachers: an admin or secretary works across the whole school by
+  // definition, so scoping them would mean nothing.
+  app.post("/api/admin/users/:uid/classrooms", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    if (caller.role !== 'admin') {
+      return res.status(403).json({ error: "Solo un administrador puede asignar salones." });
+    }
+    const raw = req.body?.classrooms;
+    if (!Array.isArray(raw)) {
+      return res.status(400).json({ error: "Envía la lista de salones." });
+    }
+    const classrooms = raw
+      .map((c: any) => String(c).trim().slice(0, 40))
+      .filter(Boolean)
+      .filter((c: string, i: number, arr: string[]) => arr.indexOf(c) === i)
+      .slice(0, 40);
+    try {
+      const target = await getUserState(req.params.uid);
+      if (!target || target.schoolId !== caller.schoolId) {
+        return res.status(404).json({ error: "No se encontró esa cuenta en tu colegio." });
+      }
+      if (target.role !== 'teacher') {
+        return res.status(400).json({ error: "Los salones solo se asignan a profesores." });
+      }
+      const updated = await updateUserState(target.uid, { classrooms });
+      res.json({ user: updated });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudieron guardar los salones." });
     }
   });
 

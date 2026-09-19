@@ -9,6 +9,7 @@ type Staff = {
   email: string;
   role: string | null;
   active: boolean;
+  classrooms?: string[];
 };
 
 const ROLE_LABEL: Record<string, string> = {
@@ -56,6 +57,29 @@ export const SchoolStaff: React.FC<{ currentUserUid?: string }> = ({ currentUser
   };
 
   useEffect(() => { load(); }, []);
+
+  // Empty means the whole school, which is what a small school with one
+  // teacher wants and what keeps every existing account working as before.
+  const saveClassrooms = async (person: Staff, raw: string) => {
+    const classrooms = raw.split(',').map((c) => c.trim()).filter(Boolean);
+    const current = person.classrooms || [];
+    if (classrooms.join('|') === current.join('|')) return;
+    try {
+      const res = await authedFetch(`/api/admin/users/${person.uid}/classrooms`, {
+        method: 'POST',
+        body: JSON.stringify({ classrooms }),
+      });
+      if (res.ok) {
+        setError(null);
+        load();
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error || 'No se pudieron guardar los salones.');
+      }
+    } catch {
+      setError('Error de conexión al guardar los salones.');
+    }
+  };
 
   const act = async (person: Staff, action: 'reset' | 'toggle') => {
     const confirmText = action === 'reset'
@@ -142,12 +166,13 @@ export const SchoolStaff: React.FC<{ currentUserUid?: string }> = ({ currentUser
               <th className="p-3 rounded-tl-2xl">Nombre</th>
               <th className="p-3">Correo</th>
               <th className="p-3">Rol</th>
+              <th className="p-3">Salones</th>
               <th className="p-3 text-center rounded-tr-2xl">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
             {staff.length === 0 ? (
-              <tr><td colSpan={4} className="p-6 text-center text-slate-500">Aún no hay personal registrado.</td></tr>
+              <tr><td colSpan={5} className="p-6 text-center text-slate-500">Aún no hay personal registrado.</td></tr>
             ) : staff.map((person) => {
               const isSelf = person.uid === currentUserUid;
               return (
@@ -168,6 +193,19 @@ export const SchoolStaff: React.FC<{ currentUserUid?: string }> = ({ currentUser
                     <span className="px-2.5 py-1 rounded-lg bg-purple-100 text-purple-700 text-[10px] font-black uppercase tracking-wider">
                       {ROLE_LABEL[person.role || ''] || person.role}
                     </span>
+                  </td>
+                  <td className="p-3">
+                    {person.role === 'teacher' ? (
+                      <input
+                        defaultValue={(person.classrooms || []).join(', ')}
+                        onBlur={(e) => saveClassrooms(person, e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                        placeholder="Todos"
+                        className="w-40 px-2 py-1 text-xs rounded-lg border border-slate-200 hover:border-slate-300 focus:border-blue-400 outline-none bg-white"
+                      />
+                    ) : (
+                      <span className="text-[11px] text-slate-400 font-medium italic">Todo el colegio</span>
+                    )}
                   </td>
                   <td className="p-3">
                     <div className="flex items-center justify-center gap-2">

@@ -287,11 +287,15 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string; currentUserU
                         <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-xl shrink-0">
                           {student.avatar === 'fox' ? '🦊' : student.avatar === 'cat' ? '🐱' : student.avatar === 'panda' ? '🐼' : student.avatar === 'tiger' ? '🐯' : student.avatar === 'lion' ? '🦁' : student.avatar === 'bear' ? '🐻' : '🦊'}
                         </div>
-                        <EditableText
-                          value={student.name}
-                          onSave={(v) => updateStudent(student.uid, { name: v })}
-                          className="font-black text-slate-800 bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-400 outline-none rounded-lg px-1.5 py-1 min-w-[130px]"
-                        />
+                        {canManageEnrollment ? (
+                          <EditableText
+                            value={student.name}
+                            onSave={(v) => updateStudent(student.uid, { name: v })}
+                            className="font-black text-slate-800 bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-400 outline-none rounded-lg px-1.5 py-1 min-w-[130px]"
+                          />
+                        ) : (
+                          <span className="font-black text-slate-800 px-1.5 py-1">{student.name}</span>
+                        )}
                         {student.active === false && (
                           <span className="shrink-0 px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[9px] font-black uppercase tracking-widest">
                             De baja
@@ -301,32 +305,44 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string; currentUserU
                     </td>
                     <td className="p-4 text-slate-500 font-medium">{student.email}</td>
                     <td className="p-4">
-                      <EditableText
-                        value={student.dni || ''}
-                        onSave={(v) => updateStudent(student.uid, { dni: v })}
-                        placeholder="—"
-                        className="w-24 px-2 py-1 text-xs rounded-lg border border-transparent hover:border-slate-200 focus:border-blue-400 outline-none bg-transparent focus:bg-white"
-                      />
+                      {canManageEnrollment ? (
+                        <EditableText
+                          value={student.dni || ''}
+                          onSave={(v) => updateStudent(student.uid, { dni: v })}
+                          placeholder="—"
+                          className="w-24 px-2 py-1 text-xs rounded-lg border border-transparent hover:border-slate-200 focus:border-blue-400 outline-none bg-transparent focus:bg-white"
+                        />
+                      ) : (
+                        <span className="text-xs px-2 py-1 text-slate-600">{student.dni || '—'}</span>
+                      )}
                     </td>
                     <td className="p-4">
-                      <select
-                        value={student.grade || ''}
-                        onChange={(e) => updateGradeOrSection(student, { grade: e.target.value })}
-                        className="px-2 py-1 text-xs rounded-lg border border-slate-200 text-slate-600 outline-none focus:ring-1 focus:ring-blue-500 bg-slate-50 hover:bg-white"
-                      >
-                        <option value="">- Grado -</option>
-                        {GRADES.map((g) => (
-                          <option key={g} value={g}>{g}</option>
-                        ))}
-                      </select>
+                      {canManageEnrollment ? (
+                        <select
+                          value={student.grade || ''}
+                          onChange={(e) => updateGradeOrSection(student, { grade: e.target.value })}
+                          className="px-2 py-1 text-xs rounded-lg border border-slate-200 text-slate-600 outline-none focus:ring-1 focus:ring-blue-500 bg-slate-50 hover:bg-white"
+                        >
+                          <option value="">- Grado -</option>
+                          {GRADES.map((g) => (
+                            <option key={g} value={g}>{g}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-xs px-2 py-1 text-slate-600">{student.grade || '—'}</span>
+                      )}
                     </td>
                     <td className="p-4">
-                      <EditableText
-                        value={student.section || ''}
-                        onSave={(v) => updateGradeOrSection(student, { section: v })}
-                        placeholder="—"
-                        className="w-14 px-2 py-1 text-xs rounded-lg border border-transparent hover:border-slate-200 focus:border-blue-400 outline-none bg-transparent focus:bg-white"
-                      />
+                      {canManageEnrollment ? (
+                        <EditableText
+                          value={student.section || ''}
+                          onSave={(v) => updateGradeOrSection(student, { section: v })}
+                          placeholder="—"
+                          className="w-14 px-2 py-1 text-xs rounded-lg border border-transparent hover:border-slate-200 focus:border-blue-400 outline-none bg-transparent focus:bg-white"
+                        />
+                      ) : (
+                        <span className="text-xs px-2 py-1 text-slate-600">{student.section || '—'}</span>
+                      )}
                     </td>
                     <td className="p-4 text-center text-blue-600 font-black">{student.progress}</td>
                     <td className="p-4 text-center text-amber-500 font-black">{student.coins}</td>

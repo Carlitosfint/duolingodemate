@@ -80,6 +80,10 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').defaultNow(),
   setupCompleted: boolean('setup_completed').default(false),
   classroom: text('classroom').default(''),
+  // Teacher-only: which classrooms they're responsible for (["4to A"]).
+  // Empty means the whole school, which is both the sane default for a
+  // small school with one teacher and what keeps existing accounts working.
+  classrooms: jsonb('classrooms').$type<string[]>().default([]),
   // Soft deactivation for someone who left the school (or an account
   // created by mistake). Deleting the row outright would take their
   // history with it and free a DNI that may still matter for a transfer,

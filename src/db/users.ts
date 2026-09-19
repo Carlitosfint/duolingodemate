@@ -84,6 +84,7 @@ export async function getSchoolStaff(schoolId: number) {
     email: users.email,
     role: users.role,
     active: users.active,
+    classrooms: users.classrooms,
     createdAt: users.createdAt,
   })
     .from(users)
