@@ -22,7 +22,7 @@ export const ProgressMap: React.FC<ProgressMapProps> = ({ progress, onNodeClick,
   const [scrollTop, setScrollTop] = useState(0);
 
   const points = useMemo(() => {
-    const pts = [];
+    const pts: { x: number; y: number; step: number }[] = [];
     for (let i = 0; i <= totalSteps; i++) {
       const y = ((totalSteps - i) * nodeSpacing) + offset;
       
@@ -36,7 +36,7 @@ export const ProgressMap: React.FC<ProgressMapProps> = ({ progress, onNodeClick,
       pts.push({ x, y, step: i });
     }
     return pts;
-  }, [nodeSpacing, amplitude, offset]);
+  }, [totalSteps, nodeSpacing, amplitude, offset]);
 
   useEffect(() => {
     // Initial scroll on mount without animation
@@ -179,7 +179,7 @@ export const ProgressMap: React.FC<ProgressMapProps> = ({ progress, onNodeClick,
           const marginStyle = { marginLeft: `${Math.max(-40, Math.min(40, yOffset))}px` };
 
           let bgClass = 'bg-white border-slate-200';
-          let innerContent = null;
+          let innerContent: React.ReactNode = null;
           let nodeSize = 'w-16 h-16';
           let wrapperClass = `flex flex-col items-center justify-center ${nodeSize} rounded-full shrink-0 transition-all duration-300 relative z-20 ${bgClass} border-b-[6px] shadow-sm cursor-pointer hover:brightness-110 active:border-b-0 active:translate-y-[6px] ${isCurrent ? 'animate-bounce' : ''}`;
           

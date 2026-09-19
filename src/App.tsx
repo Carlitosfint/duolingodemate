@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence, usePresence, useMotionValue, useMotionTemplate, animate } from 'motion/react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { auth } from './lib/firebase';
-import { ProblemData, CurrentProblem, AlbumState, Stats, ShopItem, MarketEvent, PetBuff } from './types';
+import { ProblemData, CurrentProblem, AlbumState, Stats, ShopItem, MarketEvent, PetBuff, UnplacedPiece } from './types';
 import { roulettePrizes, themes, initialAlbums, PET_BUFFS, MARKET_EVENTS, SHOP_BANNERS, TROPHIES, PROMO_CODES_MAP } from './data';
 import {
   playClickSound,
@@ -500,7 +500,7 @@ export default function App() {
     return saved ? JSON.parse(saved) : {};
   });
   
-  const [unplacedPieces, setUnplacedPieces] = useState<any[]>(() => {
+  const [unplacedPieces, setUnplacedPieces] = useState<UnplacedPiece[]>(() => {
     const saved = localStorage.getItem('fin_unplaced_pieces');
     return saved ? JSON.parse(saved) : [];
   });
@@ -664,7 +664,7 @@ export default function App() {
   const [streak, setStreak] = useState(() => parseInt(localStorage.getItem('fin_streak') || '0', 10));
   const [isSupernova, setIsSupernova] = useState(() => localStorage.getItem('fin_supernova') === 'true');
   const [showConfetti, setShowConfetti] = useState(false);
-  const [previewTheme, setPreviewTheme] = useState<{id: string, price: number} | null>(null);
+  const [previewTheme, setPreviewTheme] = useState<{id: string, price: number, isAlreadyPurchased: boolean} | null>(null);
   const [isShaking, setIsShaking] = useState(false);
 
   // Shield protection
@@ -948,7 +948,7 @@ export default function App() {
       setSkipsUsed(prev => prev + 1);
       
       const isGolden = Math.random() > 0.85;
-      const prob = generateMathProblem(isGolden, selectedTopic, getCourseProgress(activeCourse, user), activeCourse);
+      const prob = generateMathProblem(isGolden, selectedTopic, currentLevel(), activeCourse);
       setCurrentProblem({ data: prob, solved: false, timestamp: Date.now() });
       setInputAnswer("");
       setAnswerState({ type: 'idle', text: null });
@@ -957,6 +957,9 @@ export default function App() {
       playErrorAlertSound();
     }
   };
+
+  const currentLevel = () =>
+    selectedTopic ? (infiniteProgress[selectedTopic] || 0) : getCourseProgress(activeCourse, user);
 
   // Evaluate user submission
   const advanceEventProgress = () => {
@@ -972,7 +975,7 @@ export default function App() {
       setStats(prev => ({ ...prev, supernovas: prev.supernovas + 1 }));
     }
     
-    const isInfiniteMode = viewMode === 'infinite_map';
+    const isInfiniteMode = !!selectedTopic;
     setUser(prev => {
       if (!prev) return null;
       if (isInfiniteMode) {
@@ -1003,7 +1006,7 @@ export default function App() {
   };
 
   const checkAnswerSubmit = (e: React.FormEvent) => {
-    const isInfiniteMode = viewMode === 'infinite_map';
+    const isInfiniteMode = !!selectedTopic;
     e.preventDefault();
     setPreviewTheme(null); // Revert preview if answering
     if (!user || currentProblem.solved) return;
@@ -1101,9 +1104,6 @@ export default function App() {
         }));
       }
 
-      // Store nextProgress to use later if needed
-      const nextProgress = isInfiniteMode ? getCourseProgress(activeCourse, user) : Math.min(100, getCourseProgress(activeCourse, user) + 1);
-
       setStreak(nextStreak);
       
       let speedText = nextStreak > 1 ? ` ¡Racha de x${nextStreak}! 🔥` : "";
@@ -1191,7 +1191,7 @@ export default function App() {
     setPreviewTheme(null); // Revert preview just in case
     
     const isGolden = Math.random() > 0.85;
-    const prob = generateMathProblem(isGolden, selectedTopic, getCourseProgress(activeCourse, user), activeCourse);
+    const prob = generateMathProblem(isGolden, selectedTopic, currentLevel(), activeCourse);
     setCurrentProblem({ data: prob, solved: false, timestamp: Date.now() });
     setInputAnswer("");
     setAnswerState({ type: 'idle', text: null });
@@ -1204,7 +1204,7 @@ export default function App() {
     let coins = rarity === 'legendary' ? 120 : (rarity === 'rare' ? 60 : 30);
     let tickets = rarity === 'legendary' ? 15 : (rarity === 'rare' ? 8 : 4);
 
-    const wonPiecesList: any[] = [];
+    const wonPiecesList: UnplacedPiece[] = [];
     const newUnplacedPieces = [...unplacedPieces];
 
     for (let i = 0; i < numPieces; i++) {
@@ -1593,7 +1593,7 @@ export default function App() {
               </div>
               <nav className="flex flex-col gap-2 landscape:max-lg:gap-1 z-10 landscape:max-lg:text-sm">
                  {!isStaff && (<>
-                 <button onClick={() => setViewMode('map')} className={`flex items-center gap-4 ${viewMode === 'map' ? 'text-blue-600' : `${currentThemeStyle.textPrimary} hover:bg-slate-100`} font-bold p-3 rounded-2xl transition-all relative`}>
+                 <button onClick={() => { setSelectedTopic(null); setViewMode('map'); }} className={`flex items-center gap-4 ${viewMode === 'map' ? 'text-blue-600' : `${currentThemeStyle.textPrimary} hover:bg-slate-100`} font-bold p-3 rounded-2xl transition-all relative`}>
                     {viewMode === 'map' && <motion.div layoutId="nav-pill" className="absolute inset-0 bg-blue-50/80 border-2 border-blue-200 rounded-2xl z-0" transition={{ type: 'spring', stiffness: 300, damping: 30 }} />}
                     <Icon name="home" className="relative z-10" /> <span className="relative z-10">Aprender</span>
                  </button>
@@ -2263,7 +2263,7 @@ export default function App() {
                               <p className={`text-[9px] font-bold ${currentThemeStyle.textSecondary}`}>Activos: {shieldCount}</p>
                            </div>
                         </div>
-                        <Button onClick={() => { if (user.coins >= 300) { setUser(prev => prev ? { ...prev, coins: prev.coins - 300 } : null); setShieldCount(s => s + 1); playClickSound(); } }} color="emerald" className="px-3 py-1.5 text-[10px] shrink-0 shadow-sm uppercase tracking-wider"><div className="flex items-center justify-center gap-1"><Icon name="coins" size={18} /> 300</div></Button>
+                        <Button onClick={() => { if (user.coins >= 300) { setUser(prev => prev ? { ...prev, coins: prev.coins - 300 } : null); setShieldCount(s => s + 1); playClickSound(); } }} color="green" className="px-3 py-1.5 text-[10px] shrink-0 shadow-sm uppercase tracking-wider"><div className="flex items-center justify-center gap-1"><Icon name="coins" size={18} /> 300</div></Button>
                      </div>
                      <div className="p-3 bg-slate-500/5 border border-slate-500/15 rounded-2xl flex items-center justify-between gap-2 hover:bg-slate-500/10 transition-all duration-200">
                         <div className="flex items-center gap-3">
@@ -2373,7 +2373,7 @@ export default function App() {
           <div className="w-full lg:w-1/2 lg:flex-1 bg-white p-6 md:p-10 flex flex-col relative border-b lg:border-b-0 lg:border-r-[3px] border-slate-100/60 lg:overflow-y-auto no-scrollbar shrink-0">
             <div className="flex justify-center items-center mb-8 gap-2 shrink-0 relative w-full">
               <span className="px-5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-[#E8F0FE] text-blue-700 shadow-sm">
-                DESAFÍO {(viewMode === 'infinite_map' ? (infiniteProgress[selectedTopic!] || 0) : progress) + 1} - {currentProblem.data.type.toUpperCase()}
+                DESAFÍO {(selectedTopic ? (infiniteProgress[selectedTopic] || 0) : progress) + 1} - {currentProblem.data.type.toUpperCase()}
               </span>
               <button 
                 onClick={() => { playClickSound(); setShowDictLab(true); }}
@@ -2417,8 +2417,8 @@ export default function App() {
                 
                 <AnimatePresence mode="wait">
                 {currentProblem.solved ? (() => {
-                  const prog = viewMode === 'infinite_map' ? (infiniteProgress[selectedTopic] || 0) : (user?.progress || 0);
-                  const isEventNext = (prog + 1) % 3 === 0 && (prog % (viewMode === 'infinite_map' ? 10 : 20) !== 0);
+                  const prog = selectedTopic ? (infiniteProgress[selectedTopic] || 0) : (user?.progress || 0);
+                  const isEventNext = (prog + 1) % 3 === 0 && (prog % (selectedTopic ? 10 : 20) !== 0);
                   
                   if (isEventNext) {
                     return (
@@ -2535,7 +2535,7 @@ export default function App() {
           className="nav-sidebar lg:hidden landscape:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t-2 border-slate-200 p-2 z-[100] flex justify-around items-center pb-safe"
         >
           {!isStaff && (<>
-          <button onClick={() => setViewMode('map')} className={`p-2 rounded-xl flex flex-col items-center gap-1 ${viewMode === 'map' ? 'text-blue-500' : 'text-slate-400'}`}>
+          <button onClick={() => { setSelectedTopic(null); setViewMode('map'); }} className={`p-2 rounded-xl flex flex-col items-center gap-1 ${viewMode === 'map' ? 'text-blue-500' : 'text-slate-400'}`}>
             <Icon name="home" />
             <span className="text-[9px] font-black uppercase tracking-wider">Aprender</span>
           </button>
@@ -2681,7 +2681,7 @@ export default function App() {
             <p className="text-slate-600 font-bold mb-6 text-sm">
               Has salido de la mesa de trabajo o abierto otra pestaña. Un buen inversionista mantiene su atención absoluta en el mercado para evitar pérdidas.
             </p>
-            <Button onClick={() => setShowDistractionWarning(false)} color="rose" className="w-full">
+            <Button onClick={() => setShowDistractionWarning(false)} color="red" className="w-full">
               Volver a Concentrarme
             </Button>
           </Card>

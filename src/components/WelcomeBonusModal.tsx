@@ -83,7 +83,7 @@ export const WelcomeBonusModal: React.FC<WelcomeBonusModalProps> = ({
               <p className="text-[10px] text-slate-400 mt-2 font-bold uppercase tracking-widest">Agregado a tu cuenta</p>
             </div>
 
-            <Button onClick={onClose} color="emerald" className="w-full py-3 font-black uppercase tracking-wider shadow-md">
+            <Button onClick={onClose} color="green" className="w-full py-3 font-black uppercase tracking-wider shadow-md">
               ¡Comenzar Aventura!
             </Button>
           </div>

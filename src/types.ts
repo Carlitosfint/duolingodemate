@@ -38,6 +38,17 @@ export interface AlbumState {
   claimed: boolean;
 }
 
+// A piece won from a chest or a minigame, waiting for the student to place it
+// in its album.
+export interface UnplacedPiece {
+  albumId: string;
+  albumName: string;
+  pieceIndex: number;
+  emoji: string;
+  cols: number;
+  pieces: number;
+}
+
 export interface ShopItem {
   id: string;
   name: string;

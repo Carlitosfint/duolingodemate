@@ -7,7 +7,7 @@ interface ButtonProps {
   onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
   children: React.ReactNode;
   className?: string;
-  color?: 'blue' | 'green' | 'red' | 'yellow' | 'slate' | 'purple' | 'orange';
+  color?: 'blue' | 'green' | 'red' | 'yellow' | 'amber' | 'slate' | 'purple' | 'orange';
   disabled?: boolean;
   type?: 'button' | 'submit' | 'reset';
   title?: string;
@@ -33,6 +33,7 @@ export const Button: React.FC<ButtonProps> = ({
     green: "bg-emerald-500 border-emerald-600 text-white hover:bg-emerald-400",
     red: "bg-rose-500 border-rose-600 text-white hover:bg-rose-400",
     yellow: "bg-yellow-400 border-yellow-500 text-yellow-900 hover:bg-yellow-300",
+    amber: "bg-amber-500 border-amber-600 text-white hover:bg-amber-400",
     slate: "bg-slate-200 border-slate-300 text-slate-700 hover:bg-slate-100",
     purple: "bg-purple-500 border-purple-600 text-white hover:bg-purple-400",
     orange: "bg-orange-500 border-orange-600 text-white hover:bg-orange-400",

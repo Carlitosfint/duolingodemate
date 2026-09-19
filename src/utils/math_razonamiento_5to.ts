@@ -200,7 +200,7 @@ export function generateCronometria(isGolden: boolean): ProblemData {
 
 export function generateLogicaInferencial(isGolden: boolean, level: number = 50): ProblemData {
   let intro, expected, explanation;
-  let visualData = null;
+  let visualData: any = null;
   
   // Nivel bajo o progreso inicial (< 40 en el curso general, que aquí mapea a < 51, 
   // o si están en los primeros ejercicios). Usaremos level para determinar.
@@ -221,7 +221,7 @@ export function generateLogicaInferencial(isGolden: boolean, level: number = 50)
     else if (mod === 2) formula_text = `p ${op_symbol} ~q`;
 
     let expected_str = "";
-    let explanation_rows = [];
+    let explanation_rows: string[] = [];
     
     const rows = [
       { p: true, q: true, p_str: "V", q_str: "V" },

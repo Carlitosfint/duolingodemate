@@ -504,7 +504,7 @@ async function startServer() {
       return res.status(400).json({ error: "Máximo 200 alumnos por carga." });
     }
 
-    const results = [];
+    const results: Array<{ name: string; status: string; email?: string; tempPassword?: string; error?: string }> = [];
     for (const raw of students) {
       const firstName = String(raw?.firstName || '').trim();
       const lastName = String(raw?.lastName || '').trim();

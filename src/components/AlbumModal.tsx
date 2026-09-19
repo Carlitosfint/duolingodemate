@@ -2,7 +2,7 @@ import { Icon } from './CustomIcons';
 import React from 'react';
 import { Card, Button } from './UI';
 import { PuzzleSlice } from './PuzzleSlice';
-import { Album, AlbumState } from '../types';
+import { Album, AlbumState, UnplacedPiece } from '../types';
 
 interface AlbumModalProps {
   onClose?: () => void;
@@ -10,7 +10,7 @@ interface AlbumModalProps {
   albumsState: Record<string, AlbumState>;
   claimAlbumReward: (albumId: string) => void;
   isInline?: boolean;
-  unplacedPieces?: any[];
+  unplacedPieces?: UnplacedPiece[];
   placePiece?: (index: number) => void;
 }
 
