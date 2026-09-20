@@ -16,8 +16,29 @@ export const schools = pgTable('schools', {
   // (e.g. "aloe.com" -> 20265473@aloe.com). Null falls back to
   // "{slug}.alumno.com" until the school picks one.
   emailDomain: text('email_domain'),
+  // Set at self-registration (see POST /api/schools/register). Kept for
+  // billing/support contact even after the founding admin changes their
+  // own name — never shown to students or used for login.
+  contactName: text('contact_name'),
+  contactEmail: text('contact_email'),
+  contactPhone: text('contact_phone'),
+  ruc: text('ruc'),
+  studentsEstimate: integer('students_estimate'),
+  plan: text('plan').default('piloto'),
+  // 'active' | 'suspended'. Every self-registered school starts active
+  // (the "payment" step is a placeholder for now); this is what a real
+  // payment gateway would flip on a failed charge later.
+  status: text('status').default('active'),
   createdAt: timestamp('created_at').defaultNow(),
-}).enableRLS();
+}, (table) => ({
+  // Two schools sharing a domain would generate colliding student login
+  // emails, so this is enforced the same way DNI is: unique, but only
+  // where actually set (a school with no domain yet falls back to
+  // "{slug}.alumno.com", which is already unique via the slug itself).
+  emailDomainUnique: uniqueIndex('schools_email_domain_unique')
+    .on(table.emailDomain)
+    .where(sql`${table.emailDomain} is not null`),
+})).enableRLS();
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -52,9 +73,22 @@ export const users = pgTable('users', {
     ticketsByTopic: {}
   }),
   albums: jsonb('albums').default({}),
+  // The student's recent misses, each tagged with its topic. Synced so the
+  // teacher can see what a classroom struggles with — until now this lived
+  // only in the student's own browser, where nobody else could ever read it.
+  mistakes: jsonb('mistakes').default([]),
   createdAt: timestamp('created_at').defaultNow(),
   setupCompleted: boolean('setup_completed').default(false),
   classroom: text('classroom').default(''),
+  // Teacher-only: which classrooms they're responsible for (["4to A"]).
+  // Empty means the whole school, which is both the sane default for a
+  // small school with one teacher and what keeps existing accounts working.
+  classrooms: jsonb('classrooms').$type<string[]>().default([]),
+  // Soft deactivation for someone who left the school (or an account
+  // created by mistake). Deleting the row outright would take their
+  // history with it and free a DNI that may still matter for a transfer,
+  // so the row stays and the session is refused instead.
+  active: boolean('active').default(true).notNull(),
 }, (table) => ({
   // A DNI identifies one real person platform-wide, not per school — so
   // this is unique across every school, not scoped to schoolId. Partial:

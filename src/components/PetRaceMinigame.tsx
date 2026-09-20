@@ -30,9 +30,16 @@ export const PetRaceMinigame: React.FC<PetRaceMinigameProps> = ({
   ];
   
   const intervalRef = useRef<any>(null);
+  // Closing the minigame mid-countdown used to leave this one running: it
+  // would finish counting and start the race on an unmounted component,
+  // ticking audibly with nothing left to clear it.
+  const countdownRef = useRef<any>(null);
 
   useEffect(() => {
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
   }, []);
 
   const handlePick = (idx: number) => {
@@ -40,11 +47,11 @@ export const PetRaceMinigame: React.FC<PetRaceMinigameProps> = ({
     playClick();
     setSelectedPet(idx);
     setPhase('countdown');
-    
+
     let count = 3;
     setCountdownNum(count);
-    
-    const countInterval = setInterval(() => {
+
+    countdownRef.current = setInterval(() => {
       count--;
       if (count > 0) {
         setCountdownNum(count);
@@ -53,7 +60,8 @@ export const PetRaceMinigame: React.FC<PetRaceMinigameProps> = ({
         setCountdownNum('¡FUERA!');
         playCatch();
       } else {
-        clearInterval(countInterval);
+        clearInterval(countdownRef.current);
+        countdownRef.current = null;
         startRace();
       }
     }, 1000);
@@ -215,7 +223,13 @@ export const PetRaceMinigame: React.FC<PetRaceMinigameProps> = ({
               onClick={() => onFinish(getReward())} 
               className={`w-full max-w-md text-lg md:text-xl py-4 rounded-[1.5rem] font-black border-b-[6px] active:border-b-0 active:translate-y-1.5 transition-all shadow-xl cursor-pointer indestructible-btn ${getReward() > 0 ? 'bg-emerald-500 border-emerald-700 text-white hover:bg-emerald-400 hover:shadow-[0_0_30px_rgba(16,185,129,0.5)]' : 'bg-slate-600 border-slate-800 text-slate-200 hover:bg-slate-500'}`}
             >
-              {getReward() > 0 ? `Reclamar ${getReward()} Piezas <Icon name="sparkles" size={18} className="inline-block" />` : 'Continuar Aventura <Icon name="arrow_right" size={18} className="inline-block" />️'}
+              <span className="flex items-center justify-center gap-2">
+                {getReward() > 0 ? (
+                  <>Reclamar {getReward()} Piezas <Icon name="box" size={22} className="inline-block" /></>
+                ) : (
+                  <>Continuar Aventura <Icon name="arrow_right" size={22} className="inline-block" /></>
+                )}
+              </span>
             </button>
           </div>
         )}

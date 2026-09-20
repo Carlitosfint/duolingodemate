@@ -7,6 +7,13 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+import { canManageEnrollment, editableFieldsFor, visibleStudentsFor, ENROLLMENT_FIELDS } from './src/lib/permissions.ts';
+import {
+  VALID_GRADES, EMAIL_REGEX, EMAIL_DOMAIN_REGEX, MAX_CURRENCY, MAX_PROGRESS,
+  slugify, normalizeEmailDomain, studentEmailDomain, generateStudentLocalPart,
+  isUniqueViolation, clampInt, plainObject, cleanMistakes,
+} from './src/lib/validation.ts';
+
 // Readable temp password (no ambiguous 0/O/1/l), handed to the admin
 // once at account-creation time and never stored in plain text.
 function generateTempPassword(): string {
@@ -16,35 +23,7 @@ function generateTempPassword(): string {
     .join("");
 }
 
-const VALID_GRADES = ['3ro', '4to', '5to'];
-
-// Deliberately not DNI-based — the login address shouldn't expose the
-// student's national ID. {year}{4 random digits}, e.g. "20265473". Not
-// guaranteed unique on its own (unlike DNI), so callers must retry on
-// a Firebase "already exists" collision — see createStudentAccount.
-function generateStudentLocalPart(): string {
-  const year = new Date().getFullYear();
-  const randomDigits = Math.floor(1000 + Math.random() * 9000);
-  return `${year}${randomDigits}`;
-}
-
-// A school's chosen domain (e.g. "aloe.com" -> 20265473@aloe.com), or
-// "{slug}.alumno.com" until it picks one.
-function studentEmailDomain(school: { slug: string; emailDomain?: string | null } | undefined): string {
-  return school?.emailDomain || `${school?.slug || 'colegio'}.alumno.com`;
-}
-
-function isDniConflict(error: any): boolean {
-  return error?.cause?.code === '23505' || error?.code === '23505';
-}
-
-// School staff hierarchy: admin (director) > secretary (matrícula) >
-// teacher > student. A secretary can enroll/transfer students — the
-// job an admin would otherwise have to do themselves or hand off by
-// making that person a full admin — but never creates other staff.
-function canManageEnrollment(role: string): boolean {
-  return role === 'admin' || role === 'secretary';
-}
+const isDniConflict = isUniqueViolation;
 
 async function startServer() {
   const app = express();
@@ -53,9 +32,9 @@ async function startServer() {
   app.use(express.json());
 
   // Database endpoints
-  const { requireAuth } = await import('./src/middleware/auth.ts');
-  const { getUserState, updateUserState, getAllStudents, createSchoolUser, countStudentsBySection, getUserByDni } = await import('./src/db/users.ts');
-  const { getSchool, updateSchool } = await import('./src/db/schools.ts');
+  const { requireAuth, requirePlatformAdmin, isPlatformAdminEmail } = await import('./src/middleware/auth.ts');
+  const { getUserState, updateUserState, getAllStudents, createSchoolUser, countStudentsBySection, getUserByDni, countActiveAdmins, getSchoolStaff } = await import('./src/db/users.ts');
+  const { getSchool, updateSchool, createSchool, getSchoolBySlug, getSchoolByEmailDomain, deleteSchool, getSchoolsOverview } = await import('./src/db/schools.ts');
   const { adminAuth } = await import('./src/lib/firebase-admin.ts');
 
   // Section with the fewest students of this grade at this school right
@@ -106,12 +85,191 @@ async function startServer() {
       if (!firebaseUser) throw lastError;
     }
 
-    const dbUser = await createSchoolUser({
-      uid: firebaseUser.uid, email: email!, name, schoolId, role: 'student',
-      dni, grade, section, classroom: section ? `${grade} ${section}` : grade,
-    });
-    return { dbUser, tempPassword, email: email! };
+    try {
+      const dbUser = await createSchoolUser({
+        uid: firebaseUser.uid, email: email!, name, schoolId, role: 'student',
+        dni, grade, section, classroom: section ? `${grade} ${section}` : grade,
+      });
+      return { dbUser, tempPassword, email: email! };
+    } catch (error) {
+      // The Firebase account exists (email/password work) but has no DB
+      // row and the caller never sees the password — e.g. a DNI conflict,
+      // caught only now that we try to insert. Without this, that email
+      // is permanently stuck: taken in Firebase, unusable everywhere else.
+      await adminAuth.deleteUser(firebaseUser.uid).catch((e) => console.error('Rollback (firebase user) falló:', e));
+      throw error;
+    }
   }
+
+  // Appends "-2", "-3"... until the slug is free. A brand-new school
+  // registering itself is the only caller that doesn't already know its
+  // slug is unique (every other slug in the codebase is seeded by hand).
+  async function resolveUniqueSlug(base: string): Promise<string> {
+    let candidate = base;
+    for (let n = 2; await getSchoolBySlug(candidate); n++) {
+      candidate = `${base}-${n}`;
+    }
+    return candidate;
+  }
+
+  // Public: how a new school joins the platform. No auth — there's no
+  // account yet. Creates the school row, the founding admin's Firebase
+  // account (their real contact email, not a generated alias — this is
+  // staff, like any teacher/secretary created later), and their DB user
+  // row, in that order so a failure partway through never leaves a
+  // school with no admin able to log into it: if a later step fails, the
+  // steps already done are unwound (best-effort) before returning.
+  app.post("/api/schools/register", async (req: any, res) => {
+    // Honeypot: a field real users never see or fill (hidden off-screen in
+    // the form). Any value here means a bot filled every field blindly —
+    // reject without hinting why, before touching the DB or Firebase.
+    if (String(req.body?.website || '').trim()) {
+      return res.status(400).json({ error: "No se pudo procesar tu solicitud." });
+    }
+
+    const schoolName = String(req.body?.schoolName || '').trim().slice(0, 200);
+    const emailAliasRaw = String(req.body?.emailAlias || '').trim().slice(0, 100);
+    const contactName = String(req.body?.contactName || '').trim().slice(0, 200);
+    const contactEmail = String(req.body?.contactEmail || '').trim().toLowerCase().slice(0, 200);
+    const contactPhone = String(req.body?.contactPhone || '').trim().slice(0, 30);
+    const ruc = String(req.body?.ruc || '').trim().slice(0, 20);
+    const studentsEstimateRaw = req.body?.studentsEstimate;
+
+    if (!schoolName || !emailAliasRaw || !contactName || !contactEmail || !contactPhone) {
+      return res.status(400).json({ error: "Faltan datos obligatorios." });
+    }
+    if (!EMAIL_REGEX.test(contactEmail)) {
+      return res.status(400).json({ error: "El correo de contacto no es válido." });
+    }
+    const emailDomain = normalizeEmailDomain(emailAliasRaw);
+    if (!EMAIL_DOMAIN_REGEX.test(emailDomain)) {
+      return res.status(400).json({ error: 'El alias de correo no es válido (ej. "aloe" o "aloe.com").' });
+    }
+    let studentsEstimate: number | null = null;
+    if (studentsEstimateRaw !== undefined && studentsEstimateRaw !== null && studentsEstimateRaw !== '') {
+      const n = Number(studentsEstimateRaw);
+      if (!Number.isFinite(n) || n < 0) {
+        return res.status(400).json({ error: "La cantidad de alumnos no es válida." });
+      }
+      studentsEstimate = Math.round(n);
+    }
+
+    if (await getSchoolByEmailDomain(emailDomain)) {
+      return res.status(409).json({ error: "Ese alias de correo ya lo usa otro colegio. Elige otro." });
+    }
+
+    const slug = await resolveUniqueSlug(slugify(schoolName));
+
+    let school;
+    try {
+      school = await createSchool({
+        name: schoolName,
+        slug,
+        emailDomain,
+        sections: [],
+        contactName,
+        contactEmail,
+        contactPhone,
+        ruc: ruc || null,
+        studentsEstimate,
+        plan: 'piloto',
+        status: 'active',
+      });
+    } catch (error: any) {
+      console.error(error);
+      if (isUniqueViolation(error)) {
+        return res.status(409).json({ error: "Ese alias de correo ya lo usa otro colegio. Elige otro." });
+      }
+      return res.status(500).json({ error: "No se pudo registrar el colegio." });
+    }
+
+    const tempPassword = generateTempPassword();
+    let firebaseUser;
+    try {
+      firebaseUser = await adminAuth.createUser({ email: contactEmail, password: tempPassword, displayName: contactName });
+    } catch (error: any) {
+      console.error(error);
+      await deleteSchool(school.id).catch((e) => console.error('Rollback (school) falló:', e));
+      if (error?.code === 'auth/email-already-exists') {
+        return res.status(409).json({ error: "Ya existe una cuenta con ese correo de contacto." });
+      }
+      return res.status(500).json({ error: "No se pudo crear la cuenta del administrador." });
+    }
+
+    let dbUser;
+    try {
+      dbUser = await createSchoolUser({
+        uid: firebaseUser.uid, email: contactEmail, name: contactName, schoolId: school.id, role: 'admin',
+      });
+    } catch (error) {
+      console.error(error);
+      await adminAuth.deleteUser(firebaseUser.uid).catch((e) => console.error('Rollback (firebase user) falló:', e));
+      await deleteSchool(school.id).catch((e) => console.error('Rollback (school) falló:', e));
+      return res.status(500).json({ error: "No se pudo crear la cuenta del administrador." });
+    }
+
+    res.json({ school, admin: dbUser, tempPassword });
+  });
+
+  // ---- Platform console ----
+  // Whoever runs the platform, not a school. Nothing here returns student
+  // rows: the operator needs to know a school exists, how big it is and
+  // whether it should keep working — not who studies there.
+  const SCHOOL_STATUSES = ['active', 'suspended'];
+
+  app.get("/api/platform/me", async (req: any, res) => {
+    const header = req.headers.authorization;
+    if (!header?.startsWith('Bearer ')) return res.json({ isPlatformAdmin: false });
+    try {
+      const decoded = await adminAuth.verifyIdToken(header.split('Bearer ')[1]);
+      res.json({ isPlatformAdmin: isPlatformAdminEmail(decoded.email), email: decoded.email });
+    } catch {
+      res.json({ isPlatformAdmin: false });
+    }
+  });
+
+  app.get("/api/platform/schools", requirePlatformAdmin, async (_req: any, res) => {
+    try {
+      res.json(await getSchoolsOverview());
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudieron cargar los colegios." });
+    }
+  });
+
+  app.post("/api/platform/schools/:id/status", requirePlatformAdmin, async (req: any, res) => {
+    const status = req.body?.status;
+    if (!SCHOOL_STATUSES.includes(status)) {
+      return res.status(400).json({ error: "Estado inválido." });
+    }
+    try {
+      const schoolId = Number(req.params.id);
+      if (!Number.isInteger(schoolId)) return res.status(400).json({ error: "Colegio inválido." });
+      const school = await getSchool(schoolId);
+      if (!school) return res.status(404).json({ error: "No existe ese colegio." });
+      const updated = await updateSchool(schoolId, { status });
+      res.json({ school: updated });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudo cambiar el estado del colegio." });
+    }
+  });
+
+  app.post("/api/platform/schools/:id/plan", requirePlatformAdmin, async (req: any, res) => {
+    const plan = String(req.body?.plan || '').trim().slice(0, 40);
+    if (!plan) return res.status(400).json({ error: "Indica el plan." });
+    try {
+      const schoolId = Number(req.params.id);
+      if (!Number.isInteger(schoolId)) return res.status(400).json({ error: "Colegio inválido." });
+      const school = await getSchool(schoolId);
+      if (!school) return res.status(404).json({ error: "No existe ese colegio." });
+      const updated = await updateSchool(schoolId, { plan });
+      res.json({ school: updated });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudo cambiar el plan." });
+    }
+  });
 
   app.get("/api/user", requireAuth, async (req: any, res) => {
     res.json(req.dbUser);
@@ -142,7 +300,7 @@ async function startServer() {
     const updates: { emailDomain?: string | null; sections?: string[] } = {};
     if (typeof req.body?.emailDomain === 'string') {
       const domain = req.body.emailDomain.trim().toLowerCase();
-      if (domain && !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) {
+      if (domain && !EMAIL_DOMAIN_REGEX.test(domain)) {
         return res.status(400).json({ error: 'El dominio no parece válido (ej. "aloe.com").' });
       }
       updates.emailDomain = domain || null;
@@ -159,18 +317,44 @@ async function startServer() {
     try {
       const updated = await updateSchool(caller.schoolId, updates);
       res.json(updated);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
+      if (isUniqueViolation(error)) {
+        return res.status(409).json({ error: "Ese dominio de correo ya lo usa otro colegio en la plataforma." });
+      }
       res.status(500).json({ error: "No se pudo actualizar la configuración." });
     }
   });
 
+  // The game runs in the browser, so these numbers arrive from the client.
+  // They're clamped rather than trusted verbatim: a student poking at the
+  // endpoint can still be wrong, but not absurd (negative coins, progress
+  // past the end of the map, a million tickets). Enrollment fields — role,
+  // schoolId, dni, grade, section, email — are never read from the body, so
+  // this route can't be used to change who you are or what school you're in.
   app.post("/api/user/sync", requireAuth, async (req: any, res) => {
     try {
-      const { coins, tickets, progress, infiniteProgress, stats, albums, avatar, name, setupCompleted, courseProgress } = req.body;
-      const user = await updateUserState(req.user.uid, {
-        coins, tickets, progress, infiniteProgress, stats, albums, avatar, name, setupCompleted, courseProgress
-      });
+      const body = req.body || {};
+      const updates: Record<string, any> = {
+        coins: clampInt(body.coins, MAX_CURRENCY),
+        tickets: clampInt(body.tickets, MAX_CURRENCY),
+        progress: clampInt(body.progress, MAX_PROGRESS),
+        infiniteProgress: plainObject(body.infiniteProgress),
+        courseProgress: plainObject(body.courseProgress),
+        stats: plainObject(body.stats),
+        albums: plainObject(body.albums),
+        mistakes: cleanMistakes(body.mistakes),
+        avatar: typeof body.avatar === 'string' ? body.avatar.slice(0, 40) : undefined,
+        name: typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 120) : undefined,
+        setupCompleted: typeof body.setupCompleted === 'boolean' ? body.setupCompleted : undefined,
+      };
+      for (const key of Object.keys(updates)) {
+        if (updates[key] === undefined) delete updates[key];
+      }
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: "Nada que sincronizar." });
+      }
+      const user = await updateUserState(req.user.uid, updates);
       res.json(user);
     } catch (error) {
       console.error(error);
@@ -237,17 +421,24 @@ async function startServer() {
     if (!name || !email) {
       return res.status(400).json({ error: "Nombre y correo son obligatorios." });
     }
+    let staffFirebaseUser: { uid: string } | undefined;
     try {
       const tempPassword = generateTempPassword();
-      const firebaseUser = await adminAuth.createUser({ email, password: tempPassword, displayName: name });
+      staffFirebaseUser = await adminAuth.createUser({ email, password: tempPassword, displayName: name });
       const dbUser = await createSchoolUser({
-        uid: firebaseUser.uid, email, name, schoolId: caller.schoolId, role: requestedRole,
+        uid: staffFirebaseUser.uid, email, name, schoolId: caller.schoolId, role: requestedRole,
       });
       res.json({ user: dbUser, tempPassword });
     } catch (error: any) {
       console.error(error);
       if (error?.code === 'auth/email-already-exists') {
         return res.status(409).json({ error: "Ya existe una cuenta con ese correo." });
+      }
+      // The DB insert failed after the Firebase account was already
+      // created — without cleanup that email is stuck forever (taken in
+      // Firebase, no row anywhere, and the caller never saw the password).
+      if (staffFirebaseUser) {
+        await adminAuth.deleteUser(staffFirebaseUser.uid).catch((e) => console.error('Rollback (firebase user) falló:', e));
       }
       res.status(500).json({ error: "No se pudo crear la cuenta." });
     }
@@ -313,7 +504,7 @@ async function startServer() {
       return res.status(400).json({ error: "Máximo 200 alumnos por carga." });
     }
 
-    const results = [];
+    const results: Array<{ name: string; status: string; email?: string; tempPassword?: string; error?: string }> = [];
     for (const raw of students) {
       const firstName = String(raw?.firstName || '').trim();
       const lastName = String(raw?.lastName || '').trim();
@@ -348,7 +539,7 @@ async function startServer() {
         return res.status(403).json({ error: "Only teachers can view this" });
       }
       const students = await getAllStudents(caller.schoolId);
-      res.json(students);
+      res.json(visibleStudentsFor(caller, students));
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Failed to fetch students" });
@@ -360,11 +551,6 @@ async function startServer() {
   // read from the body — without this whitelist the old code applied
   // req.body verbatim, so a crafted request could escalate a student to
   // admin or move them to a different school.
-  const STUDENT_EDITABLE_FIELDS = [
-    'name', 'avatar', 'dni', 'grade', 'section', 'classroom',
-    'coins', 'tickets', 'progress',
-  ] as const;
-
   app.post("/api/teacher/student/:uid", requireAuth, async (req: any, res) => {
     try {
       const caller = req.dbUser;
@@ -379,8 +565,21 @@ async function startServer() {
       if (!target || target.schoolId !== caller.schoolId || target.role !== 'student') {
         return res.status(404).json({ error: "Student not found" });
       }
+      // A teacher assigned to specific classrooms can't reach around them.
+      if (visibleStudentsFor(caller, [target]).length === 0) {
+        return res.status(403).json({ error: "Ese alumno no pertenece a tus salones." });
+      }
+      const allowed = editableFieldsFor(caller.role);
+      // Rejected rather than silently dropped: a teacher who tries to fix a
+      // DNI should be told it isn't theirs to change, not watch it revert.
+      const forbidden = ENROLLMENT_FIELDS.filter((f) => f in req.body && !allowed.includes(f));
+      if (forbidden.length > 0) {
+        return res.status(403).json({
+          error: "Los datos de matrícula (nombre, DNI, grado y sección) solo los cambia el administrador o el secretario.",
+        });
+      }
       const updates: Record<string, any> = {};
-      for (const field of STUDENT_EDITABLE_FIELDS) {
+      for (const field of allowed) {
         if (field in req.body) updates[field] = req.body[field];
       }
       const updatedUser = await updateUserState(targetUid, updates);
@@ -391,13 +590,193 @@ async function startServer() {
     }
   });
 
-
-  // API endpoint for Gemini proxy
-  app.post("/api/gemini", async (req, res) => {
+  // What the classroom is getting wrong, by topic. Aggregated here rather
+  // than shipping every student's mistakes to the browser: the teacher wants
+  // the pattern ("half of 5to A misses Mezclas"), not 300 individual misses.
+  app.get("/api/teacher/mistakes", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    if (caller.role !== 'teacher' && caller.role !== 'admin' && caller.role !== 'secretary') {
+      return res.status(403).json({ error: "No autorizado." });
+    }
     try {
-      const { prompt } = req.body;
-      if (!prompt) {
+      const classroom = typeof req.query.classroom === 'string' ? req.query.classroom : '';
+      const students = visibleStudentsFor(caller, await getAllStudents(caller.schoolId));
+      const scoped = students.filter((s: any) =>
+        s.active !== false && (!classroom || s.classroom === classroom)
+      );
+
+      const byTopic = new Map<string, { topic: string; misses: number; students: Set<string> }>();
+      for (const student of scoped) {
+        const mistakes = Array.isArray(student.mistakes) ? student.mistakes : [];
+        for (const m of mistakes as any[]) {
+          const topic = (m?.topic || '').trim() || 'Sin tema';
+          if (!byTopic.has(topic)) byTopic.set(topic, { topic, misses: 0, students: new Set() });
+          const entry = byTopic.get(topic)!;
+          entry.misses += 1;
+          entry.students.add(student.uid);
+        }
+      }
+
+      const topics = Array.from(byTopic.values())
+        .map((t) => ({ topic: t.topic, misses: t.misses, students: t.students.size }))
+        .sort((a, b) => b.misses - a.misses);
+
+      res.json({ topics, studentsConsidered: scoped.length });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudieron cargar los errores del salón." });
+    }
+  });
+
+  // Staff roster. Admin only: a secretary handles enrollment, not who works
+  // at the school, and a teacher has no business listing their colleagues'
+  // accounts.
+  app.get("/api/admin/staff", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    if (caller.role !== 'admin') {
+      return res.status(403).json({ error: "Solo un administrador puede ver las cuentas del personal." });
+    }
+    try {
+      const staff = await getSchoolStaff(caller.schoolId);
+      res.json(staff);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudo cargar el personal del colegio." });
+    }
+  });
+
+  // Which classrooms a teacher is responsible for. Admin only, and only on
+  // teachers: an admin or secretary works across the whole school by
+  // definition, so scoping them would mean nothing.
+  app.post("/api/admin/users/:uid/classrooms", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    if (caller.role !== 'admin') {
+      return res.status(403).json({ error: "Solo un administrador puede asignar salones." });
+    }
+    const raw = req.body?.classrooms;
+    if (!Array.isArray(raw)) {
+      return res.status(400).json({ error: "Envía la lista de salones." });
+    }
+    const classrooms = raw
+      .map((c: any) => String(c).trim().slice(0, 40))
+      .filter(Boolean)
+      .filter((c: string, i: number, arr: string[]) => arr.indexOf(c) === i)
+      .slice(0, 40);
+    try {
+      const target = await getUserState(req.params.uid);
+      if (!target || target.schoolId !== caller.schoolId) {
+        return res.status(404).json({ error: "No se encontró esa cuenta en tu colegio." });
+      }
+      if (target.role !== 'teacher') {
+        return res.status(400).json({ error: "Los salones solo se asignan a profesores." });
+      }
+      const updated = await updateUserState(target.uid, { classrooms });
+      res.json({ user: updated });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudieron guardar los salones." });
+    }
+  });
+
+  // Gives someone leave, or brings them back. Soft on purpose: deleting the
+  // row would take the student's history with it, and their DNI may still be
+  // needed to transfer them to another school on the platform. The Firebase
+  // account is disabled alongside so they can't sign in at all.
+  app.post("/api/admin/users/:uid/active", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    const targetUid = req.params.uid;
+    const active = req.body?.active;
+    if (typeof active !== 'boolean') {
+      return res.status(400).json({ error: "Falta indicar si la cuenta queda activa o de baja." });
+    }
+    try {
+      const target = await getUserState(targetUid);
+      if (!target || target.schoolId !== caller.schoolId) {
+        return res.status(404).json({ error: "No se encontró esa cuenta en tu colegio." });
+      }
+      const allowed = target.role === 'student'
+        ? canManageEnrollment(caller.role)
+        : caller.role === 'admin';
+      if (!allowed) {
+        return res.status(403).json({ error: "No tienes permiso para dar de baja esa cuenta." });
+      }
+      // Locking yourself out would leave the school with no way back in if
+      // you're its only admin.
+      if (target.uid === caller.uid) {
+        return res.status(400).json({ error: "No puedes darte de baja a ti mismo." });
+      }
+      if (target.role === 'admin' && !active) {
+        const admins = await countActiveAdmins(caller.schoolId);
+        if (admins <= 1) {
+          return res.status(400).json({ error: "Es el único administrador activo del colegio. Nombra a otro antes de darlo de baja." });
+        }
+      }
+
+      await adminAuth.updateUser(targetUid, { disabled: !active }).catch((e) => {
+        // Missing in Firebase (already removed by hand) shouldn't block the
+        // row from being marked — the DB flag is what gates access anyway.
+        if (e?.code !== 'auth/user-not-found') throw e;
+      });
+      const updated = await updateUserState(targetUid, { active });
+      res.json({ user: updated });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudo actualizar el estado de la cuenta." });
+    }
+  });
+
+  // Issues a fresh temporary password. Students can't use the "forgot your
+  // password" email: their address is generated on the school's domain
+  // (20265473@colegio.com) and no such mailbox exists, so without this an
+  // account is locked out permanently the first time a student forgets.
+  app.post("/api/admin/users/:uid/reset-password", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    const targetUid = req.params.uid;
+    try {
+      const target = await getUserState(targetUid);
+      // Scoped to the caller's own school; a 404 either way so this can't be
+      // used to probe which uids exist elsewhere on the platform.
+      if (!target || target.schoolId !== caller.schoolId) {
+        return res.status(404).json({ error: "No se encontró esa cuenta en tu colegio." });
+      }
+      // A secretary handles enrollment, so they reset students. Resetting
+      // staff — including another admin — stays with the admin.
+      const allowed = target.role === 'student'
+        ? canManageEnrollment(caller.role)
+        : caller.role === 'admin';
+      if (!allowed) {
+        return res.status(403).json({ error: "No tienes permiso para restablecer esa contraseña." });
+      }
+      // Resetting your own password here would be a way to lock yourself out
+      // of an active session for no reason; use the email flow instead.
+      if (target.uid === caller.uid) {
+        return res.status(400).json({ error: 'Para tu propia cuenta usa "¿Olvidaste tu contraseña?" en el login.' });
+      }
+
+      const tempPassword = generateTempPassword();
+      await adminAuth.updateUser(targetUid, { password: tempPassword });
+      res.json({ tempPassword, name: target.name, email: target.email });
+    } catch (error: any) {
+      console.error(error);
+      if (error?.code === 'auth/user-not-found') {
+        return res.status(404).json({ error: "Esa cuenta ya no existe en el sistema de acceso." });
+      }
+      res.status(500).json({ error: "No se pudo restablecer la contraseña." });
+    }
+  });
+
+
+  // Gemini proxy. Behind auth on purpose: unauthenticated it's an open
+  // relay to a paid API that anyone who finds the URL can bill to the
+  // platform, with no way to tell whose traffic it is.
+  app.post("/api/gemini", requireAuth, async (req: any, res) => {
+    try {
+      const prompt = req.body?.prompt;
+      if (typeof prompt !== 'string' || !prompt.trim()) {
         return res.status(400).json({ error: "Prompt is required" });
+      }
+      if (prompt.length > 4000) {
+        return res.status(400).json({ error: "El texto es demasiado largo." });
       }
 
       const apiKey = process.env.GEMINI_API_KEY;

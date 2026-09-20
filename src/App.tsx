@@ -1,9 +1,8 @@
-import ReactDOM from 'react-dom';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import { motion, AnimatePresence, usePresence, useMotionValue, useMotionTemplate, animate } from 'motion/react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { auth } from './lib/firebase';
-import { ProblemData, CurrentProblem, AlbumState, Stats, ShopItem, MarketEvent, PetBuff } from './types';
+import { ProblemData, CurrentProblem, AlbumState, Stats, ShopItem, MarketEvent, PetBuff, UnplacedPiece } from './types';
 import { roulettePrizes, themes, initialAlbums, PET_BUFFS, MARKET_EVENTS, SHOP_BANNERS, TROPHIES, PROMO_CODES_MAP } from './data';
 import {
   playClickSound,
@@ -26,6 +25,13 @@ import { generateMathProblem } from './utils/math';
 import { useAnimatedNumber } from './utils/animated';
 import { Button, Card, BentoTile, FloatingMathBackground } from './components/UI';
 import { ConfettiOverlay } from './components/ConfettiOverlay';
+const PlatformConsole = lazy(() => import('./components/PlatformConsole').then(m => ({ default: m.PlatformConsole })));
+const SchoolRegister = lazy(() => import('./components/SchoolRegister').then(m => ({ default: m.SchoolRegister })));
+const TeacherDashboard = lazy(() => import('./components/TeacherDashboard').then(m => ({ default: m.TeacherDashboard })));
+const ShellGameMinigame = lazy(() => import('./components/ShellGameMinigame').then(m => ({ default: m.ShellGameMinigame })));
+const PetRaceMinigame = lazy(() => import('./components/PetRaceMinigame').then(m => ({ default: m.PetRaceMinigame })));
+
+import { Toast, ToastTone } from './components/Toast';
 import { AudioToggle } from './components/AudioToggle';
 import { ColegioLogin } from './components/ColegioLogin';
 
@@ -37,21 +43,24 @@ import { DictLabModal } from './components/DictLabModal';
 import { AlbumModal } from './components/AlbumModal';
 import { MistakesModal } from './components/MistakesModal';
 import { ProfileModal } from './components/ProfileModal';
-import { TeacherDashboard } from './components/TeacherDashboard';
 import { TeacherModeModal } from './components/TeacherModeModal';
 import { WelcomeBonusModal } from './components/WelcomeBonusModal';
 import { DailyChallengesModal } from './components/DailyChallengesModal';
 import { ChestModal } from './components/ChestModal';
 import { TicketModal } from './components/TicketModal';
 import { ProgressModal } from './components/ProgressModal';
-import { ShellGameMinigame } from './components/ShellGameMinigame';
-import { PetRaceMinigame } from './components/PetRaceMinigame';
 import { UserState } from './types';
 import { THEME_STYLES } from './data';
 import { Icon } from './components/CustomIcons';
 import { Avatar, AVATAR_OPTIONS } from './components/Avatar';
 
 
+
+const Loading = () => (
+  <div className="min-h-screen w-full flex items-center justify-center bg-slate-50">
+    <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+  </div>
+);
 
 let globalLastClick = { x: 0, y: 0 };
 if (typeof window !== 'undefined') {
@@ -78,11 +87,13 @@ const TabTransition: React.FC<{ children: React.ReactNode, type?: string, zIndex
   const [isPresent, safeToRemove] = usePresence();
   
   React.useEffect(() => {
-    if (!isPresent) { 
+    if (!isPresent) {
        playTransitionSound();
-       const timer = setTimeout(() => { safeToRemove && safeToRemove(); }, 1000);
+       // Debe cubrir toda la pantalla antes de desmontar: última barra
+       // termina a los (4*0.05 + 0.4)s = 0.6s, con margen de sobra.
+       const timer = setTimeout(() => { safeToRemove && safeToRemove(); }, 650);
        return () => clearTimeout(timer);
-    } else { 
+    } else {
        playRevealSound();
     }
   }, [isPresent, safeToRemove]);
@@ -99,7 +110,7 @@ const TabTransition: React.FC<{ children: React.ReactNode, type?: string, zIndex
                 key={`blocks-${color}`}
                 initial={{ y: isPresent ? '0%' : '100%' }}
                 animate={{ y: isPresent ? '-100%' : '0%' }}
-                transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: isPresent ? i * 0.08 : (4 - i) * 0.08 }}
+                transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1], delay: isPresent ? i * 0.05 : (4 - i) * 0.05 }}
                 style={{ flex: 1, height: '100%', backgroundColor: color, zIndex: 25 }}
               />
            );
@@ -156,56 +167,58 @@ export const PageReveal: React.FC<{ children: React.ReactNode, className?: strin
   });
 
   React.useEffect(() => {
-    if (!isPresent) { 
+    if (!isPresent) {
        // Exiting component: wait until entering animation completes
-       const timer = setTimeout(() => { 
-         safeToRemove && safeToRemove(); 
-       }, 3500); 
+       const timer = setTimeout(() => {
+         safeToRemove && safeToRemove();
+       }, 1000);
        return () => clearTimeout(timer);
     }
-    
-    // Entering component animation sequence:
-    
+
+    // Entering component animation sequence. This plays on every map<->exercise
+    // switch, so it's tuned for ~4x faster than the original cut while keeping
+    // the same lens choreography (open old, close, open new, expand, settle).
+
     // Phase 1: Lens opens showing old page. Starts immediately alongside the circles.
     playTransitionSound();
     circleRadii.forEach((r, i) => {
-      animate(r, radii.base - i * radii.step, { 
-         duration: 0.4, 
-         delay: i * 0.05, 
-         ease: [0.34, 1.56, 0.64, 1] 
+      animate(r, radii.base - i * radii.step, {
+         duration: 0.2,
+         delay: i * 0.03,
+         ease: [0.34, 1.56, 0.64, 1]
        });
     });
-    animate(holeRadius, 50, { duration: 0.4, ease: "easeInOut" }); // 50px = ~12vmin
-    
-    // Phase 2: Lens closes (+1.5s delay means it closes at 1900ms)
+    animate(holeRadius, 50, { duration: 0.2, ease: "easeInOut" }); // 50px = ~12vmin
+
+    // Phase 2: Lens closes
     const t2 = setTimeout(() => {
-      animate(holeRadius, 0, { duration: 0.3, ease: "easeInOut" });
-    }, 1900); 
-    
+      animate(holeRadius, 0, { duration: 0.15, ease: "easeInOut" });
+    }, 450);
+
     // Phase 3: Lens opens showing NEW page
     const t3 = setTimeout(() => {
       playRevealSound();
-      animate(holeRadius, 50, { duration: 0.3, ease: "easeInOut" });
-      animate(pageRadius, 50, { duration: 0.3, ease: "easeInOut" });
-    }, 2200); 
-    
+      animate(holeRadius, 50, { duration: 0.15, ease: "easeInOut" });
+      animate(pageRadius, 50, { duration: 0.15, ease: "easeInOut" });
+    }, 520);
+
     // Phase 4: Expand to full screen
     const t4 = setTimeout(() => {
       setPhase(4);
       const maxR = Math.max(window.innerWidth, window.innerHeight) * 1.5;
-      
+
       circleRadii.forEach((r) => {
-        animate(r, maxR, { duration: 0.6, ease: [0.64, 0, 0.78, 0] });
+        animate(r, maxR, { duration: 0.25, ease: [0.64, 0, 0.78, 0] });
       });
-      animate(holeRadius, maxR, { duration: 0.6, ease: [0.64, 0, 0.78, 0] });
-      animate(pageRadius, maxR, { duration: 0.6, ease: [0.64, 0, 0.78, 0] });
-    }, 2600); 
+      animate(holeRadius, maxR, { duration: 0.25, ease: [0.64, 0, 0.78, 0] });
+      animate(pageRadius, maxR, { duration: 0.25, ease: [0.64, 0, 0.78, 0] });
+    }, 620);
 
     // Phase 5: Clean up, make interactive
     const t5 = setTimeout(() => {
       setPhase(5);
-    }, 3200); 
-        
+    }, 900);
+
     return () => { clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); clearTimeout(t5); };
   }, [isPresent, safeToRemove, holeRadius, pageRadius, radii, ...circleRadii]);
 
@@ -218,7 +231,7 @@ export const PageReveal: React.FC<{ children: React.ReactNode, className?: strin
     <motion.div 
       className={`fixed inset-0 flex flex-col ${phase >= 5 ? '' : 'overflow-hidden pointer-events-none'}`}
       style={{ zIndex: currentZ }}
-      exit={{ opacity: 1, transition: { duration: 3.5 } }}
+      exit={{ opacity: 1, transition: { duration: 1 } }}
     >
       {/* 5 Circles with Hole Mask */}
       {phase < 5 && isPresent && (
@@ -336,8 +349,13 @@ export default function App() {
       // role/grade are never set here — both are fixed server-side at enrollment.
       const newUser = { ...user, ...data, setupCompleted: true };
       setUser(newUser);
-      setShowWelcomeBonus(true);
-      setTutorialStep(1);
+      // The welcome bonus and tutorial ("resuelve desafíos", "cofres",
+      // "monedas y álbumes") are about the student game loop — staff
+      // skip straight to a completed setup.
+      if (user.role !== 'teacher' && user.role !== 'admin' && user.role !== 'secretary') {
+        setShowWelcomeBonus(true);
+        setTutorialStep(1);
+      }
     }
   };
 
@@ -365,6 +383,20 @@ export default function App() {
   const [authUser, setAuthUser] = useState<FirebaseUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [showLoginScreen, setShowLoginScreen] = useState<boolean | null>(null);
+  const [showRegisterScreen, setShowRegisterScreen] = useState(false);
+
+  // Los minijuegos se cargan aparte, y aparecen de golpe cuando el alumno cae
+  // en uno: se traen en cuanto el navegador está libre para que no haya espera.
+  useEffect(() => {
+    const warm = () => {
+      import('./components/ShellGameMinigame');
+      import('./components/PetRaceMinigame');
+    };
+    const idle = (window as any).requestIdleCallback;
+    if (idle) { const id = idle(warm); return () => (window as any).cancelIdleCallback?.(id); }
+    const t = setTimeout(warm, 3000);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
@@ -381,13 +413,26 @@ export default function App() {
   }, [authChecked, authUser, showLoginScreen]);
 
   const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
+  // Whoever runs the platform has no school, so /api/user rejects them. That
+  // rejection is the cue to check whether this is an operator instead.
+  const [platformAdmin, setPlatformAdmin] = useState<{ email?: string } | null>(null);
+  // Read inside the hydration effect, which only depends on authUser.
+  const userRef = useRef(user);
+  userRef.current = user;
 
-  // First login on this device/browser (no cached profile yet): load the
-  // real account — name, role, school — from the backend instead of
-  // guessing. Accounts are provisioned by an admin/teacher with a fixed
-  // role, so the client must never invent one.
+  // Loads the real account — name, role, school — from the backend on every
+  // sign-in. Accounts are provisioned by an admin with a fixed role, so the
+  // client must never invent one.
+  //
+  // Progress is merged rather than overwritten, always keeping whichever side
+  // is further along. Two reasons: students who played before this synced at
+  // all have their whole history only in localStorage and would otherwise be
+  // reset to zero on their next login; and a sync that failed to reach the
+  // server (offline, closed tab) must never cost the student their work.
+  const hydratedRef = useRef(false);
   useEffect(() => {
-    if (!authUser || user) return;
+    if (!authUser || hydratedRef.current) return;
+    hydratedRef.current = true;
     let cancelled = false;
     (async () => {
       try {
@@ -395,35 +440,72 @@ export default function App() {
         const res = await fetch('/api/user', { headers: { Authorization: `Bearer ${token}` } });
         if (cancelled) return;
         if (!res.ok) {
-          setProfileLoadError(
-            res.status === 403
-              ? 'No hay una cuenta registrada para este usuario. Contacta a tu colegio.'
-              : 'No se pudo cargar tu perfil. Intenta de nuevo.'
-          );
+          hydratedRef.current = false;
+          // 403 is definitive (the account isn't registered at any school), so
+          // it always surfaces. A transient failure only blocks the student
+          // when there's no cached profile to fall back on — otherwise they
+          // keep playing offline and the next successful sync catches up.
+          if (res.status === 403) {
+            const platform = await fetch('/api/platform/me', { headers: { Authorization: `Bearer ${token}` } })
+              .then((r) => r.json())
+              .catch(() => ({ isPlatformAdmin: false }));
+            if (cancelled) return;
+            if (platform.isPlatformAdmin) {
+              setPlatformAdmin({ email: platform.email });
+              return;
+            }
+            // The server distinguishes "no account" from a deactivated account
+            // and a suspended school; showing its message keeps the student
+            // from being told the wrong reason.
+            const body = await res.json().catch(() => ({}));
+            setProfileLoadError(body.error || 'No hay una cuenta registrada para este usuario. Contacta a tu colegio.');
+          } else if (!userRef.current) {
+            setProfileLoadError('No se pudo cargar tu perfil. Intenta de nuevo.');
+          }
           return;
         }
         const dbUser = await res.json();
-        setUser({
-          name: dbUser.name || authUser.displayName || authUser.email?.split('@')[0] || 'Estudiante',
-          avatar: dbUser.avatar || 'fox',
-          coins: dbUser.coins ?? 0,
-          tickets: dbUser.tickets ?? 0,
-          progress: dbUser.progress ?? 0,
-          setupCompleted: dbUser.setupCompleted ?? false,
+        if (cancelled) return;
+
+        const mergeByKey = (a: Record<string, number> = {}, b: Record<string, number> = {}) => {
+          const out: Record<string, number> = { ...a };
+          for (const [k, v] of Object.entries(b)) out[k] = Math.max(Number(out[k]) || 0, Number(v) || 0);
+          return out;
+        };
+
+        setUser(prev => ({
+          // Identity and enrollment always come from the server — they're the
+          // school's data, not the device's.
+          name: prev?.name || dbUser.name || authUser.displayName || authUser.email?.split('@')[0] || 'Estudiante',
+          email: dbUser.email || authUser.email || '',
+          avatar: prev?.avatar || dbUser.avatar || 'fox',
           role: dbUser.role || 'student',
           grade: dbUser.grade || undefined,
-          courseProgress: dbUser.courseProgress || {},
           classroom: dbUser.classroom || '',
+          setupCompleted: dbUser.setupCompleted || prev?.setupCompleted || false,
+          coins: Math.max(dbUser.coins ?? 0, prev?.coins ?? 0),
+          tickets: Math.max(dbUser.tickets ?? 0, prev?.tickets ?? 0),
+          progress: Math.max(dbUser.progress ?? 0, prev?.progress ?? 0),
+          courseProgress: mergeByKey(prev?.courseProgress, dbUser.courseProgress),
+        }));
+        setInfiniteProgress(prev => mergeByKey(prev, dbUser.infiniteProgress));
+        setStats(prev => ((dbUser.stats?.solved ?? 0) > (prev?.solved ?? 0) ? dbUser.stats : prev));
+        setMistakesList(prev => ((dbUser.mistakes?.length ?? 0) > prev.length ? dbUser.mistakes : prev));
+        setAlbumsState(prev => {
+          const owned = (s: Record<string, AlbumState>) =>
+            Object.values(s || {}).reduce((n, a: any) => n + (a?.piecesOwned?.length || 0), 0);
+          return owned(dbUser.albums) > owned(prev) ? dbUser.albums : prev;
         });
       } catch {
-        if (!cancelled) setProfileLoadError('Error de conexión al cargar tu perfil.');
+        if (!cancelled) {
+          hydratedRef.current = false;
+          if (!userRef.current) setProfileLoadError('Error de conexión al cargar tu perfil.');
+        }
       }
     })();
     return () => { cancelled = true; };
-  }, [authUser, user]);
+  }, [authUser]);
 
-  const [loginName, setLoginName] = useState("");
-  const [loginAvatar, setLoginAvatar] = useState("fox");
 
   // Central Game States
   const [activeTheme, setActiveTheme] = useState<string>(() => localStorage.getItem('fin_theme') || 'default');
@@ -437,7 +519,7 @@ export default function App() {
     return saved ? JSON.parse(saved) : {};
   });
   
-  const [unplacedPieces, setUnplacedPieces] = useState<any[]>(() => {
+  const [unplacedPieces, setUnplacedPieces] = useState<UnplacedPiece[]>(() => {
     const saved = localStorage.getItem('fin_unplaced_pieces');
     return saved ? JSON.parse(saved) : [];
   });
@@ -498,20 +580,34 @@ export default function App() {
     return parseInt(localStorage.getItem('fin_skips_used') || '0', 10);
   });
 
+  // Defaults to 0 (hidden): the tutorial is only ever started explicitly,
+  // from handleInitialSetupComplete right after a brand-new account finishes
+  // setup, or from "Ver Tutorial". Defaulting to 1 here used to re-trigger it
+  // on every login where localStorage was empty — which is every login right
+  // after handleLogout, since it deliberately wipes local state so the next
+  // student on a shared computer doesn't inherit the previous one's session.
   const [tutorialStep, setTutorialStep] = useState<number>(() => {
     const saved = localStorage.getItem('fin_tutorial_step');
-    if (saved === null) return 1;
-    return parseInt(saved, 10);
+    return saved === null ? 0 : parseInt(saved, 10);
   });
 
   // UI inputs & feedbacks
   const [inputAnswer, setInputAnswer] = useState("");
-  const [mistakesList, setMistakesList] = useState<{ problem: string; userAnswer: string; correctAnswer: string; explanation: string }[]>(() => {
+  const [mistakesList, setMistakesList] = useState<{ problem: string; userAnswer: string; correctAnswer: string; explanation: string; topic?: string }[]>(() => {
     const saved = localStorage.getItem('fin_mistakes');
     return saved ? JSON.parse(saved) : [];
   });
 
   // Modals & Overlays Visibility
+  const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback((text: string, tone: ToastTone = 'warn') => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ text, tone });
+    toastTimer.current = setTimeout(() => setToast(null), 2600);
+  }, []);
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
+
   const [showWelcomeBonus, setShowWelcomeBonus] = useState(false);
   const [welcomePrize, setWelcomePrize] = useState<{ icon: string; name: string } | null>(null);
   const [showMistakes, setShowMistakes] = useState(false);
@@ -520,6 +616,13 @@ export default function App() {
   const [showProfile, setShowProfile] = useState(false);
   const [showChallenges, setShowChallenges] = useState(false);
   const [viewMode, setViewMode] = useState<'map' | 'practice' | 'infinite_map' | 'exercise' | 'codice' | 'album' | 'shop' | 'mistakes' | 'profile' | 'teacher' | 'teacher_dash'>('map');
+  const isStaff = user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'secretary';
+
+  // El personal (profesor/secretario/admin) aterriza directo en su panel,
+  // no en el mapa de aventura pensado para alumnos.
+  useEffect(() => {
+    if (isStaff) setViewMode('teacher_dash');
+  }, [user?.role]);
 
     const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [selectedCourse, setSelectedCourse] = useState<'razonamiento' | 'trigonometria' | 'razonamiento_5to' | 'geometria_5to' | null>(null);
@@ -580,7 +683,7 @@ export default function App() {
   const [streak, setStreak] = useState(() => parseInt(localStorage.getItem('fin_streak') || '0', 10));
   const [isSupernova, setIsSupernova] = useState(() => localStorage.getItem('fin_supernova') === 'true');
   const [showConfetti, setShowConfetti] = useState(false);
-  const [previewTheme, setPreviewTheme] = useState<{id: string, price: number} | null>(null);
+  const [previewTheme, setPreviewTheme] = useState<{id: string, price: number, isAlreadyPurchased: boolean} | null>(null);
   const [isShaking, setIsShaking] = useState(false);
 
   // Shield protection
@@ -605,6 +708,58 @@ export default function App() {
       localStorage.setItem('fin_user', JSON.stringify(user));
     }
   }, [user, infiniteProgress, stats, albumsState]);
+
+  // Pushes progress to the server. Until this existed the game lived purely
+  // in localStorage: the teacher dashboard showed zeros for every student,
+  // and logging out (which deliberately clears local state on shared school
+  // computers) destroyed the student's history for good.
+  const syncStateRef = useRef({ user, stats, albumsState, infiniteProgress, mistakesList, authUser });
+  syncStateRef.current = { user, stats, albumsState, infiniteProgress, mistakesList, authUser };
+
+  const syncToServer = useCallback(async () => {
+    const snapshot = syncStateRef.current;
+    if (!snapshot.user || !snapshot.authUser) return;
+    try {
+      const token = await snapshot.authUser.getIdToken();
+      await fetch('/api/user/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          coins: snapshot.user.coins,
+          tickets: snapshot.user.tickets,
+          progress: snapshot.user.progress,
+          courseProgress: snapshot.user.courseProgress || {},
+          infiniteProgress: snapshot.infiniteProgress,
+          stats: snapshot.stats,
+          albums: snapshot.albumsState,
+          mistakes: snapshot.mistakesList,
+          avatar: snapshot.user.avatar,
+          name: snapshot.user.name,
+          setupCompleted: snapshot.user.setupCompleted,
+        }),
+      });
+    } catch {
+      // Offline or the server is down: the local copy is still authoritative
+      // and the merge on next sign-in keeps whichever side is further along.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!user || !authUser) return;
+    const timer = setTimeout(syncToServer, 1500);
+    return () => clearTimeout(timer);
+  }, [user, stats, albumsState, infiniteProgress, mistakesList, authUser, syncToServer]);
+
+  // Closing the tab mid-debounce would otherwise drop the last answers.
+  useEffect(() => {
+    const flush = () => { if (document.visibilityState === 'hidden') syncToServer(); };
+    document.addEventListener('visibilitychange', flush);
+    window.addEventListener('pagehide', syncToServer);
+    return () => {
+      document.removeEventListener('visibilitychange', flush);
+      window.removeEventListener('pagehide', syncToServer);
+    };
+  }, [syncToServer]);
 
   useEffect(() => {
     localStorage.setItem('fin_albums_state', JSON.stringify(albumsState));
@@ -710,9 +865,13 @@ export default function App() {
   // Secure Server proxy call to Gemini
   const callGemini = async (prompt: string): Promise<string> => {
     try {
+      const token = await auth.currentUser?.getIdToken();
       const response = await fetch('/api/gemini', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ prompt }),
       });
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -724,22 +883,6 @@ export default function App() {
     }
   };
 
-  // Login handler
-  const handleLoginSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!loginName.trim()) return;
-    playCatchSound();
-    const newUser = {
-      name: loginName.trim(),
-      avatar: loginAvatar,
-      coins: 200,
-      tickets: 10,
-      progress: 0
-    };
-    setUser(newUser);
-    setShowWelcomeBonus(true);
-    setTutorialStep(1);
-  };
 
   // Pick Welcome box
   const handleWelcomePick = (idx: number) => {
@@ -824,7 +967,7 @@ export default function App() {
       setSkipsUsed(prev => prev + 1);
       
       const isGolden = Math.random() > 0.85;
-      const prob = generateMathProblem(isGolden, selectedTopic, getCourseProgress(activeCourse, user), activeCourse);
+      const prob = generateMathProblem(isGolden, selectedTopic, currentLevel(), activeCourse);
       setCurrentProblem({ data: prob, solved: false, timestamp: Date.now() });
       setInputAnswer("");
       setAnswerState({ type: 'idle', text: null });
@@ -833,6 +976,9 @@ export default function App() {
       playErrorAlertSound();
     }
   };
+
+  const currentLevel = () =>
+    selectedTopic ? (infiniteProgress[selectedTopic] || 0) : getCourseProgress(activeCourse, user);
 
   // Evaluate user submission
   const advanceEventProgress = () => {
@@ -848,7 +994,7 @@ export default function App() {
       setStats(prev => ({ ...prev, supernovas: prev.supernovas + 1 }));
     }
     
-    const isInfiniteMode = viewMode === 'infinite_map';
+    const isInfiniteMode = !!selectedTopic;
     setUser(prev => {
       if (!prev) return null;
       if (isInfiniteMode) {
@@ -879,24 +1025,35 @@ export default function App() {
   };
 
   const checkAnswerSubmit = (e: React.FormEvent) => {
-    const isInfiniteMode = viewMode === 'infinite_map';
+    const isInfiniteMode = !!selectedTopic;
     e.preventDefault();
     setPreviewTheme(null); // Revert preview if answering
     if (!user || currentProblem.solved) return;
     
+    const isTruthTable = currentProblem.data.visualData?.type === 'truth_table';
     const valStr = inputAnswer.trim();
-    if (!valStr || isNaN(parseFloat(valStr))) {
+
+    if (isTruthTable) {
+      if (!/^[VF]{4}$/i.test(valStr)) {
+        setIsShaking(true);
+        setTimeout(() => setIsShaking(false), 400); // match animation duration
+        playErrorAlertSound();
+        return;
+      }
+    } else if (!valStr || isNaN(parseFloat(valStr))) {
       setIsShaking(true);
       setTimeout(() => setIsShaking(false), 400); // match animation duration
       playErrorAlertSound();
       return;
     }
-    
+
     const userVal = parseFloat(valStr);
     const correctVal = parseFloat(currentProblem.data.expectedAnswer);
-    
-    // Accept small rounding tolerance
-    const isCorrect = Math.abs(userVal - correctVal) <= 0.05;
+
+    // Accept small rounding tolerance for numeric answers; exact match for truth tables
+    const isCorrect = isTruthTable
+      ? valStr.toUpperCase() === String(currentProblem.data.expectedAnswer).toUpperCase()
+      : Math.abs(userVal - correctVal) <= 0.05;
 
     if (isCorrect) {
       setShowConfetti(true);
@@ -966,9 +1123,6 @@ export default function App() {
         }));
       }
 
-      // Store nextProgress to use later if needed
-      const nextProgress = isInfiniteMode ? getCourseProgress(activeCourse, user) : Math.min(100, getCourseProgress(activeCourse, user) + 1);
-
       setStreak(nextStreak);
       
       let speedText = nextStreak > 1 ? ` ¡Racha de x${nextStreak}! 🔥` : "";
@@ -1003,14 +1157,19 @@ export default function App() {
       // Events are now handled from the map directly, not auto-triggered here.
 
     } else {
-      // Wrong response
+      // Wrong response. The answer is deliberately NOT revealed here: it used
+      // to be shown along with "¡Vuelve a intentarlo!", so the student could
+      // read it and retype it for full rewards — the question taught nothing
+      // and the progression meant nothing. Now the question closes, the miss
+      // is filed under "Errores" (answer + explanation there, to review), and
+      // the student moves on to a new one at the same level.
       playErrorAlertSound();
-      
+
       if (shieldCount > 0) {
         setShieldCount(prev => prev - 1);
         setAnswerState({
           type: 'wrong',
-          text: <><Icon name="x" className="inline-block" size={18} /> Respuesta incorrecta. ¡Tu Escudo te protegió y salvó tu racha de 🔥 {streak}!</>
+          text: <><Icon name="x" className="inline-block" size={18} /> Incorrecto, pero tu Escudo salvó tu racha de 🔥 {streak}. Lo guardamos en Errores para repasarlo.</>
         });
         playShieldSound();
       } else {
@@ -1018,24 +1177,29 @@ export default function App() {
         setIsSupernova(false);
         setAnswerState({
           type: 'wrong',
-          text: <span className="flex items-center gap-1 flex-wrap justify-center"><Icon name="x" size={18} /> Incorrecto. La respuesta era {correctVal}{currentProblem.data.unit}. ¡Vuelve a intentarlo!</span>
+          text: <span className="flex items-center gap-1 flex-wrap justify-center"><Icon name="x" size={18} /> Incorrecto. Lo guardamos en tus Errores con la explicación para que lo repases.</span>
         });
-
-        // Add to Mistakes
-        const exist = mistakesList.some(m => m.problem === currentProblem.data.intro);
-        if (!exist) {
-          setMistakesList(prev => [
-            {
-              problem: currentProblem.data.intro,
-              userAnswer: inputAnswer.trim(),
-              correctAnswer: currentProblem.data.expectedAnswer,
-              explanation: currentProblem.data.explanation
-            },
-            ...prev
-          ]);
-        }
       }
 
+      // Recorded whether or not a shield absorbed the streak loss: the shield
+      // protects the streak, it doesn't mean the student got it right.
+      const exist = mistakesList.some(m => m.problem === currentProblem.data.intro);
+      if (!exist) {
+        setMistakesList(prev => [
+          {
+            problem: currentProblem.data.intro,
+            userAnswer: inputAnswer.trim(),
+            correctAnswer: currentProblem.data.expectedAnswer,
+            explanation: currentProblem.data.explanation,
+            // What makes the teacher's view possible: without the topic a
+            // mistake is just one problem, not a pattern across the class.
+            topic: currentProblem.data.type,
+          },
+          ...prev
+        ]);
+      }
+
+      setCurrentProblem(prev => ({ ...prev, failed: true }));
       setStats(prev => ({ ...prev, failedAttempts: prev.failedAttempts + 1 }));
     }
   };
@@ -1046,7 +1210,7 @@ export default function App() {
     setPreviewTheme(null); // Revert preview just in case
     
     const isGolden = Math.random() > 0.85;
-    const prob = generateMathProblem(isGolden, selectedTopic, getCourseProgress(activeCourse, user), activeCourse);
+    const prob = generateMathProblem(isGolden, selectedTopic, currentLevel(), activeCourse);
     setCurrentProblem({ data: prob, solved: false, timestamp: Date.now() });
     setInputAnswer("");
     setAnswerState({ type: 'idle', text: null });
@@ -1059,7 +1223,7 @@ export default function App() {
     let coins = rarity === 'legendary' ? 120 : (rarity === 'rare' ? 60 : 30);
     let tickets = rarity === 'legendary' ? 15 : (rarity === 'rare' ? 8 : 4);
 
-    const wonPiecesList: any[] = [];
+    const wonPiecesList: UnplacedPiece[] = [];
     const newUnplacedPieces = [...unplacedPieces];
 
     for (let i = 0; i < numPieces; i++) {
@@ -1137,18 +1301,20 @@ export default function App() {
     playClickSound(); // maybe another satisfying "pop" sound or something
     
     setAlbumsState(prev => {
-      const newState = { ...prev };
-      const st = newState[piece.albumId] || { piecesOwned: [], completed: false, claimed: false };
-      if (!st.piecesOwned.includes(piece.pieceIndex)) {
-        st.piecesOwned.push(piece.pieceIndex);
-      }
-      
+      const current = prev[piece.albumId];
+      const owned = current?.piecesOwned || [];
+      // Copied, never pushed into: mutating prev's array in place makes the
+      // update invisible to React and corrupts the previous state.
+      const piecesOwned = owned.includes(piece.pieceIndex) ? owned : [...owned, piece.pieceIndex];
       const alb = initialAlbums.find(a => a.id === piece.albumId);
-      if (alb && st.piecesOwned.length === alb.pieces) {
-        st.completed = true;
-      }
-      newState[piece.albumId] = st;
-      return newState;
+      return {
+        ...prev,
+        [piece.albumId]: {
+          piecesOwned,
+          completed: alb ? piecesOwned.length === alb.pieces : current?.completed || false,
+          claimed: current?.claimed || false,
+        },
+      };
     });
 
     setUnplacedPieces(prev => {
@@ -1200,65 +1366,52 @@ export default function App() {
     }, 4000);
   };
 
-  // Minigame completions
+  // Minigame completions. Unlike chests, the pieces land straight in the
+  // album (nothing to place by hand) — the modal is just the reveal.
+  const awardMinigamePieces = (count: number, rarity: string) => {
+    advanceEventProgress();
+    if (count <= 0 || !user) return;
+
+    // Drawn outside the updater: React calls updaters twice in StrictMode,
+    // which would otherwise double every won piece in the reveal modal.
+    const wonPieces = Array.from({ length: count }, () => {
+      const alb = initialAlbums[Math.floor(Math.random() * initialAlbums.length)];
+      const pieceIndex = Math.floor(Math.random() * alb.pieces);
+      return { emoji: alb.emoji, albumName: alb.name, pieceIndex, albumId: alb.id, cols: alb.cols, pieces: alb.pieces };
+    });
+
+    setAlbumsState(prev => {
+      const next = { ...prev };
+      for (const piece of wonPieces) {
+        const owned = next[piece.albumId]?.piecesOwned || [];
+        const piecesOwned = owned.includes(piece.pieceIndex) ? owned : [...owned, piece.pieceIndex];
+        next[piece.albumId] = {
+          piecesOwned,
+          completed: piecesOwned.length === piece.pieces,
+          claimed: next[piece.albumId]?.claimed || false,
+        };
+      }
+      return next;
+    });
+
+    setOpenChestAnimation({
+      isOpen: true,
+      rewardType: 'minigame',
+      piecesWon: wonPieces,
+      coinsWon: 0,
+      ticketsWon: 0,
+      rarity,
+    });
+  };
+
   const onFinishShellGame = (piecesWon: number) => {
     setShowShellGame(false);
-    advanceEventProgress();
-  
-    if (piecesWon > 0 && user) {
-      const newAlbumsState = { ...albumsState };
-      const wonPieces: any[] = [];
-      for (let i = 0; i < piecesWon; i++) {
-        const alb = initialAlbums[Math.floor(Math.random() * initialAlbums.length)];
-        const pIdx = Math.floor(Math.random() * alb.pieces);
-        const st = newAlbumsState[alb.id] || { piecesOwned: [], completed: false, claimed: false };
-        if (!st.piecesOwned.includes(pIdx)) {
-          st.piecesOwned.push(pIdx);
-        }
-        if (st.piecesOwned.length === alb.pieces) st.completed = true;
-        newAlbumsState[alb.id] = st;
-        wonPieces.push({ emoji: alb.emoji, albumName: alb.name, pieceIndex: pIdx });
-      }
-      setAlbumsState(newAlbumsState);
-      setOpenChestAnimation({
-        isOpen: true,
-        rewardType: 'minigame',
-        piecesWon,
-        coinsWon: 0,
-        ticketsWon: 0,
-        rarity: 'common'
-      });
-    }
+    awardMinigamePieces(piecesWon, 'common');
   };
 
   const onFinishPetRace = (piecesWon: number) => {
     setShowPetRace(false);
-    advanceEventProgress();
-  
-    if (piecesWon > 0 && user) {
-      const newAlbumsState = { ...albumsState };
-      const wonPieces: any[] = [];
-      for (let i = 0; i < piecesWon; i++) {
-        const alb = initialAlbums[Math.floor(Math.random() * initialAlbums.length)];
-        const pIdx = Math.floor(Math.random() * alb.pieces);
-        const st = newAlbumsState[alb.id] || { piecesOwned: [], completed: false, claimed: false };
-        if (!st.piecesOwned.includes(pIdx)) {
-          st.piecesOwned.push(pIdx);
-        }
-        if (st.piecesOwned.length === alb.pieces) st.completed = true;
-        newAlbumsState[alb.id] = st;
-        wonPieces.push({ emoji: alb.emoji, albumName: alb.name, pieceIndex: pIdx });
-      }
-      setAlbumsState(newAlbumsState);
-      setOpenChestAnimation({
-        isOpen: true,
-        rewardType: 'minigame',
-        piecesWon,
-        coinsWon: 0,
-        ticketsWon: 0,
-        rarity: 'rare'
-      });
-    }
+    awardMinigamePieces(piecesWon, 'rare');
   };
 
   // Easy shortcuts
@@ -1283,6 +1436,9 @@ export default function App() {
   // computer never sees the previous student's progress.
   const handleLogout = async () => {
     playClickSound();
+    // Must happen before signOut (the token goes away) and before the wipe
+    // below, or the student's session is lost instead of saved.
+    await syncToServer();
     try {
       await signOut(auth);
     } catch (e) {
@@ -1309,11 +1465,11 @@ export default function App() {
   };
 
   const dailyChallenges = [
-    { id: 1, icon: '⚡', title: 'Gana 50 Monedas', target: 50, current: Math.min(coins, 50), reward: { type: 'tickets', amount: 5, label: '5 <Icon name="ticket" size={18} className="inline-block -mt-1" />' }, color: 'bg-yellow-400' },
-    { id: 2, icon: '🎯', title: 'Alcanza Nivel 10', target: 10, current: Math.min(progress, 10), reward: { type: 'coins', amount: 200, label: '200 🪙' }, color: 'bg-green-400' },
-    { id: 3, icon: '💎', title: 'Acumula 10 Tickets', target: 10, current: Math.min(tickets, 10), reward: { type: 'coins', amount: 500, label: '500 🪙' }, color: 'bg-purple-400' },
-    { id: 4, icon: '🏆', title: 'Completa 20 Retos', target: 20, current: Math.min(progress, 20), reward: { type: 'tickets', amount: 10, label: '10 <Icon name="ticket" size={18} className="inline-block -mt-1" />' }, color: 'bg-rose-400' },
-    { id: 5, icon: '🔥', title: 'Racha de 5', target: 5, current: Math.min(streak, 5), reward: { type: 'coins', amount: 300, label: '300 🪙' }, color: 'bg-amber-400' },
+    { id: 1, icon: '⚡', title: 'Gana 50 Monedas', target: 50, current: Math.min(coins, 50), reward: { type: 'tickets', amount: 5 }, color: 'bg-yellow-400' },
+    { id: 2, icon: '🎯', title: 'Alcanza Nivel 10', target: 10, current: Math.min(progress, 10), reward: { type: 'coins', amount: 200 }, color: 'bg-green-400' },
+    { id: 3, icon: '💎', title: 'Acumula 10 Tickets', target: 10, current: Math.min(tickets, 10), reward: { type: 'coins', amount: 500 }, color: 'bg-purple-400' },
+    { id: 4, icon: '🏆', title: 'Completa 20 Retos', target: 20, current: Math.min(progress, 20), reward: { type: 'tickets', amount: 10 }, color: 'bg-rose-400' },
+    { id: 5, icon: '🔥', title: 'Racha de 5', target: 5, current: Math.min(streak, 5), reward: { type: 'coins', amount: 300 }, color: 'bg-amber-400' },
   ];
 
   if (!authChecked || showLoginScreen === null) {
@@ -1325,7 +1481,13 @@ export default function App() {
   }
 
   if (showLoginScreen) {
-    return <ColegioLogin onLoginSuccess={() => setShowLoginScreen(false)} />;
+    return showRegisterScreen
+      ? <Suspense fallback={<Loading />}><SchoolRegister onBackToLogin={() => setShowRegisterScreen(false)} /></Suspense>
+      : <ColegioLogin onLoginSuccess={() => setShowLoginScreen(false)} onRegisterSchool={() => setShowRegisterScreen(true)} />;
+  }
+
+  if (platformAdmin) {
+    return <Suspense fallback={<Loading />}><PlatformConsole email={platformAdmin.email} onLogout={handleLogout} /></Suspense>;
   }
 
   if (profileLoadError) {
@@ -1365,8 +1527,11 @@ export default function App() {
       {/* Confetti Celebration */}
       {showConfetti && <ConfettiOverlay />}
 
-      {/* Tutorial Overlay (Interactive Guide) */}
-      {tutorialStep > 0 && tutorialStep <= 3 && (
+      <Toast toast={toast} />
+
+      {/* Tutorial Overlay (Interactive Guide) — never for staff, whose accounts
+          skip straight to a completed setup and have no game loop to learn. */}
+      {!isStaff && tutorialStep > 0 && tutorialStep <= 3 && (
         <div className="fixed inset-0 bg-black/80 z-[999] flex items-center justify-center p-4 backdrop-blur-md animate-fade-in">
           <Card className="w-full max-w-lg border-4 border-blue-500 bg-white p-6 md:p-8 text-center animate-pop relative shadow-2xl">
             {/* Step badge */}
@@ -1446,7 +1611,8 @@ export default function App() {
                 <img src="/img/logo_colegio.png" alt="Logo Colegio" className="h-10 w-auto object-contain ml-2 drop-shadow-md" />
               </div>
               <nav className="flex flex-col gap-2 landscape:max-lg:gap-1 z-10 landscape:max-lg:text-sm">
-                 <button onClick={() => setViewMode('map')} className={`flex items-center gap-4 ${viewMode === 'map' ? 'text-blue-600' : `${currentThemeStyle.textPrimary} hover:bg-slate-100`} font-bold p-3 rounded-2xl transition-all relative`}>
+                 {!isStaff && (<>
+                 <button onClick={() => { setSelectedTopic(null); setViewMode('map'); }} className={`flex items-center gap-4 ${viewMode === 'map' ? 'text-blue-600' : `${currentThemeStyle.textPrimary} hover:bg-slate-100`} font-bold p-3 rounded-2xl transition-all relative`}>
                     {viewMode === 'map' && <motion.div layoutId="nav-pill" className="absolute inset-0 bg-blue-50/80 border-2 border-blue-200 rounded-2xl z-0" transition={{ type: 'spring', stiffness: 300, damping: 30 }} />}
                     <Icon name="home" className="relative z-10" /> <span className="relative z-10">Aprender</span>
                  </button>
@@ -1462,14 +1628,15 @@ export default function App() {
                     {viewMode === 'shop' && <motion.div layoutId="nav-pill" className="absolute inset-0 bg-blue-50/80 border-2 border-blue-200 rounded-2xl z-0" transition={{ type: 'spring', stiffness: 300, damping: 30 }} />}
                     <Icon name="store" className="relative z-10" /> <span className="relative z-10">Tienda</span>
                  </button>
+                 </>)}
                  <button onClick={() => setViewMode('profile')} className={`flex items-center gap-4 ${viewMode === 'profile' ? 'text-blue-600' : `${currentThemeStyle.textPrimary} hover:bg-slate-100`} font-bold p-3 rounded-2xl transition-all relative`}>
                     {viewMode === 'profile' && <motion.div layoutId="nav-pill" className="absolute inset-0 bg-blue-50/80 border-2 border-blue-200 rounded-2xl z-0" transition={{ type: 'spring', stiffness: 300, damping: 30 }} />}
                     <Icon name="user" className="relative z-10" /> <span className="relative z-10">Perfil</span>
                  </button>
-                 {(user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'secretary') && (
+                 {isStaff && (
                    <button onClick={() => setViewMode('teacher_dash')} className={`flex items-center gap-4 ${viewMode === 'teacher_dash' ? 'text-blue-600' : `${currentThemeStyle.textPrimary} hover:bg-slate-100`} font-bold p-3 rounded-2xl transition-all relative`}>
                       {viewMode === 'teacher_dash' && <motion.div layoutId="nav-pill" className="absolute inset-0 bg-blue-50/80 border-2 border-blue-200 rounded-2xl z-0" transition={{ type: 'spring', stiffness: 300, damping: 30 }} />}
-                      <Icon name="users" className="relative z-10" /> <span className="relative z-10">Alumnos</span>
+                      <Icon name="users" className="relative z-10" /> <span className="relative z-10">Usuario</span>
                    </button>
                  )}
               </nav>
@@ -1514,7 +1681,7 @@ export default function App() {
                           if ((step + 1) % 3 !== 0 || (step % 20 === 0)) {
                             setSelectedTopic(null);
                             setViewMode('exercise');
-                          } else alert("Ya reclamaste esta recompensa en el pasado.");
+                          } else showToast("Ya reclamaste esta recompensa en el pasado.", "info");
                         } else if (step === progress) {
                           if ((step + 1) % 3 === 0 && (step % 20 !== 0)) { 
                              const cycle = Math.floor(step / 3);
@@ -1590,7 +1757,7 @@ export default function App() {
                             setInputAnswer("");
                             setAnswerState({ type: 'idle', text: null });
                             setViewMode('exercise');
-                          } else alert("Ya reclamaste esta recompensa en el pasado.");
+                          } else showToast("Ya reclamaste esta recompensa en el pasado.", "info");
                         } else if (step === curProg) {
                           if ((step + 1) % 3 === 0 && (step % 10 !== 0)) { 
                              if ((Math.floor((step + 1) / 3)) % 7 === 0) {
@@ -1676,13 +1843,13 @@ export default function App() {
               </TabTransition>)}
 
               {viewMode === 'codice' && (<TabTransition type="blocks" key="codice">
-                <div key="codice" className="flex-1 relative bg-white/50 overflow-hidden">
+                <div key="codice" className="h-full relative bg-white/50 overflow-hidden">
                   <DictLabModal isInline={true} activeCourse={activeCourse} />
                 </div>
               </TabTransition>)}
 
               {viewMode === 'album' && (<TabTransition type="diagonal" key="album">
-                <div key="album" className="flex-1 relative bg-slate-900 overflow-hidden">
+                <div key="album" className="h-full relative bg-slate-900 overflow-hidden">
                   <AlbumModal 
                     isInline={true}
                     albums={initialAlbums}
@@ -1734,7 +1901,7 @@ export default function App() {
                             <button 
                               className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
                               onClick={() => {
-                                 if (user.coins >= 60) { setUser(prev => prev ? { ...prev, coins: prev.coins - 60 } : null); setShieldCount(s => s + 1); playClickSound(); } else { alert("No tienes suficientes monedas."); }
+                                 if (user.coins >= 60) { setUser(prev => prev ? { ...prev, coins: prev.coins - 60 } : null); setShieldCount(s => s + 1); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
                               }}
                             >
                                60 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
@@ -1758,7 +1925,7 @@ export default function App() {
                             <button 
                               className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
                               onClick={() => {
-                                 if (user.coins >= 150) { setUser(prev => prev ? { ...prev, coins: prev.coins - 150 } : null); setShieldCount(s => s + 3); playClickSound(); } else { alert("No tienes suficientes monedas."); }
+                                 if (user.coins >= 150) { setUser(prev => prev ? { ...prev, coins: prev.coins - 150 } : null); setShieldCount(s => s + 3); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
                               }}
                             >
                                150 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
@@ -1783,7 +1950,7 @@ export default function App() {
                               className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto disabled:opacity-50" 
                               disabled={isSupernova}
                               onClick={() => {
-                                 if (user.coins >= 150) { setUser(prev => prev ? { ...prev, coins: prev.coins - 150 } : null); setIsSupernova(true); playClickSound(); } else { alert("No tienes suficientes monedas."); }
+                                 if (user.coins >= 150) { setUser(prev => prev ? { ...prev, coins: prev.coins - 150 } : null); setIsSupernova(true); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
                               }}
                             >
                                150 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
@@ -1807,7 +1974,7 @@ export default function App() {
                             <button 
                               className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
                               onClick={() => {
-                                 if (user.coins >= 200 && !activeDoubleDividends) { setUser(prev => prev ? { ...prev, coins: prev.coins - 200 } : null); setActiveDoubleDividends(true); playClickSound(); } else if (activeDoubleDividends) { alert("Ya tienes este poder activo."); } else { alert("No tienes suficientes monedas."); }
+                                 if (user.coins >= 200 && !activeDoubleDividends) { setUser(prev => prev ? { ...prev, coins: prev.coins - 200 } : null); setActiveDoubleDividends(true); playClickSound(); } else if (activeDoubleDividends) { showToast("Ya tienes este poder activo.", "info"); } else { showToast("No tienes suficientes monedas."); }
                               }}
                             >
                                200 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
@@ -1831,7 +1998,7 @@ export default function App() {
                             <button 
                               className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
                               onClick={() => {
-                                 alert("Disponible próximamente");
+                                 showToast("Disponible próximamente", "info");
                               }}
                             >
                                250 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
@@ -1855,7 +2022,7 @@ export default function App() {
                             <button 
                               className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
                               onClick={() => {
-                                 alert("Disponible próximamente");
+                                 showToast("Disponible próximamente", "info");
                               }}
                             >
                                180 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
@@ -1880,7 +2047,7 @@ export default function App() {
                           <button 
                             className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-sm border-b-4 border-slate-900 transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-auto" 
                             onClick={() => {
-                              if (user.tickets >= 100) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 100 } : null); openRandomChest('common'); playClickSound(); } else { alert("Tickets insuficientes"); }
+                              if (user.tickets >= 100) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 100 } : null); openRandomChest('common'); playClickSound(); } else { showToast("No tienes suficientes tickets."); }
                             }}
                           >
                             <Icon name="coins" size={16} /> 500
@@ -1898,7 +2065,7 @@ export default function App() {
                           <button 
                             className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-sm border-b-4 border-blue-800 transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-auto relative z-10" 
                             onClick={() => {
-                              if (user.tickets >= 300) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 300 } : null); openRandomChest('rare'); playClickSound(); } else { alert("Tickets insuficientes"); }
+                              if (user.tickets >= 300) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 300 } : null); openRandomChest('rare'); playClickSound(); } else { showToast("No tienes suficientes tickets."); }
                             }}
                           >
                             <Icon name="ticket" size={16} /> 300
@@ -1917,7 +2084,7 @@ export default function App() {
                           <button 
                             className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 active:scale-95 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-sm border-b-4 border-amber-700 transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-auto relative z-10" 
                             onClick={() => {
-                              if (user.tickets >= 1000) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 1000 } : null); openRandomChest('legendary'); playClickSound(); } else { alert("Tickets insuficientes"); }
+                              if (user.tickets >= 1000) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 1000 } : null); openRandomChest('legendary'); playClickSound(); } else { showToast("No tienes suficientes tickets."); }
                             }}
                           >
                             <Icon name="ticket" size={16} /> 1000
@@ -1974,35 +2141,36 @@ export default function App() {
               </TabTransition>)}
 
               {viewMode === 'mistakes' && (<TabTransition type="blocks" key="mistakes">
-                <div key="mistakes" className="flex-1 relative bg-white/50 overflow-hidden flex flex-col">
+                <div key="mistakes" className="h-full relative bg-white/50 overflow-hidden flex flex-col">
                   <MistakesModal isInline={true} mistakesList={mistakesList} />
                 </div>
               </TabTransition>)}
 
               {viewMode === 'profile' && (<TabTransition type="diagonal" key="profile">
-                <div key="profile" className="flex-1 relative bg-white/50 overflow-hidden">
-                  <ProfileModal 
+                <div key="profile" className="h-full relative bg-white/50 overflow-hidden">
+                  <ProfileModal
                     isInline={true}
-                    stats={stats} 
-                    user={{ ...user, coins, tickets }} 
-                    trophies={TROPHIES} 
-                    coinsSpent={coinsSpent} 
-                    skipsUsed={skipsUsed} 
-                    onReplayTutorial={() => { playClickSound(); setTutorialStep(1); }}
+                    stats={stats}
+                    user={{ ...user, coins, tickets }}
+                    trophies={TROPHIES}
+                    coinsSpent={coinsSpent}
+                    skipsUsed={skipsUsed}
+                    onReplayTutorial={isStaff ? undefined : () => { playClickSound(); setTutorialStep(1); }}
                     onLogout={handleLogout}
+                    onGoToUsers={isStaff ? () => { playClickSound(); setViewMode('teacher_dash'); } : undefined}
                   />
                 </div>
               </TabTransition>)}
 
               {viewMode === 'teacher_dash' && (<TabTransition type="swipe" key="teacher_dash">
-                <div key="teacher_dash" className="flex-1 relative bg-white/50 overflow-hidden p-8 overflow-y-auto">
-                  <TeacherDashboard currentUserRole={user.role} />
+                <div key="teacher_dash" className="h-full relative bg-white/50 overflow-y-auto p-4 md:p-8">
+                  <Suspense fallback={<Loading />}><TeacherDashboard currentUserRole={user.role} currentUserUid={authUser?.uid} /></Suspense>
                 </div>
               </TabTransition>)}
 
 
               {viewMode === 'teacher' && (<TabTransition type="swipe" key="teacher">
-                <div key="teacher" className="flex-1 relative bg-white/50 overflow-hidden">
+                <div key="teacher" className="h-full relative bg-white/50 overflow-hidden">
                   <TeacherModeModal 
                     isInline={true}
                     currentProblemIntro={currentProblem.data.intro}
@@ -2015,7 +2183,8 @@ export default function App() {
               </AnimatePresence>
            </div>
 
-           {/* Right Sidebar */}
+           {/* Right Sidebar — student gamification only (challenges, power-ups, coupons); staff manage the school instead. */}
+           {!isStaff && (
            <div className="hidden lg:flex landscape:flex flex-col w-80 landscape:max-lg:w-56 gap-5 landscape:max-lg:gap-3 overflow-y-auto no-scrollbar pb-8 relative z-30">
                {/* Stats HUD */}
                <div className={`flex justify-between items-center rounded-3xl p-5 landscape:max-lg:p-3 border-2 shadow-sm ${currentThemeStyle.headerBg}`}>
@@ -2113,7 +2282,7 @@ export default function App() {
                               <p className={`text-[9px] font-bold ${currentThemeStyle.textSecondary}`}>Activos: {shieldCount}</p>
                            </div>
                         </div>
-                        <Button onClick={() => { if (user.coins >= 300) { setUser(prev => prev ? { ...prev, coins: prev.coins - 300 } : null); setShieldCount(s => s + 1); playClickSound(); } }} color="emerald" className="px-3 py-1.5 text-[10px] shrink-0 shadow-sm uppercase tracking-wider"><div className="flex items-center justify-center gap-1"><Icon name="coins" size={18} /> 300</div></Button>
+                        <Button onClick={() => { if (user.coins >= 300) { setUser(prev => prev ? { ...prev, coins: prev.coins - 300 } : null); setShieldCount(s => s + 1); playClickSound(); } }} color="green" className="px-3 py-1.5 text-[10px] shrink-0 shadow-sm uppercase tracking-wider"><div className="flex items-center justify-center gap-1"><Icon name="coins" size={18} /> 300</div></Button>
                      </div>
                      <div className="p-3 bg-slate-500/5 border border-slate-500/15 rounded-2xl flex items-center justify-between gap-2 hover:bg-slate-500/10 transition-all duration-200">
                         <div className="flex items-center gap-3">
@@ -2154,8 +2323,9 @@ export default function App() {
                     </div>
                   )}
                </div>
-               
+
            </div>
+           )}
         </PageReveal>
       ) : (
         <PageReveal key="exercise-app" bgClass={currentThemeStyle.bgClass} isFullScreen className="w-full relative z-30 max-w-[1400px] mx-auto landscape-mini p-4 md:p-6 h-[100dvh] flex flex-col overflow-hidden">
@@ -2170,7 +2340,7 @@ export default function App() {
           </button>
           <div className="flex flex-col min-w-0 pr-1 max-w-[100px] sm:max-w-[180px]">
             <h2 className={`font-black text-xs md:text-sm truncate leading-none ${currentThemeStyle.textPrimary}`}>{user.name}</h2>
-            <p className="text-[9px] md:text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 md:mt-1">Nivel {progress.level}</p>
+            <p className="text-[9px] md:text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 md:mt-1">Nivel {progress}</p>
           </div>
           
           <div className="flex items-center ml-2 bg-amber-400 rounded-full px-2 md:px-3 py-1 gap-1 border-b-[3px] border-amber-600 shadow-sm">
@@ -2222,7 +2392,7 @@ export default function App() {
           <div className="w-full lg:w-1/2 lg:flex-1 bg-white p-6 md:p-10 flex flex-col relative border-b lg:border-b-0 lg:border-r-[3px] border-slate-100/60 lg:overflow-y-auto no-scrollbar shrink-0">
             <div className="flex justify-center items-center mb-8 gap-2 shrink-0 relative w-full">
               <span className="px-5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-[#E8F0FE] text-blue-700 shadow-sm">
-                DESAFÍO {(viewMode === 'infinite_map' ? (infiniteProgress[selectedTopic!] || 0) : (user?.progress || 0)) + 1} - {currentProblem.data.type.toUpperCase()}
+                DESAFÍO {(selectedTopic ? (infiniteProgress[selectedTopic] || 0) : progress) + 1} - {currentProblem.data.type.toUpperCase()}
               </span>
               <button 
                 onClick={() => { playClickSound(); setShowDictLab(true); }}
@@ -2266,8 +2436,8 @@ export default function App() {
                 
                 <AnimatePresence mode="wait">
                 {currentProblem.solved ? (() => {
-                  const prog = viewMode === 'infinite_map' ? (infiniteProgress[selectedTopic] || 0) : (user?.progress || 0);
-                  const isEventNext = (prog + 1) % 3 === 0 && (prog % (viewMode === 'infinite_map' ? 10 : 20) !== 0);
+                  const prog = selectedTopic ? (infiniteProgress[selectedTopic] || 0) : (user?.progress || 0);
+                  const isEventNext = (prog + 1) % 3 === 0 && (prog % (selectedTopic ? 10 : 20) !== 0);
                   
                   if (isEventNext) {
                     return (
@@ -2305,10 +2475,28 @@ export default function App() {
                       SIGUIENTE DESAFÍO <Icon name="arrow_right" size={20} className="inline-block ml-1" />
                     </Button></motion.div>
                   );
-                })() : (
+                })() : currentProblem.failed ? (
+                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.3 }} className="w-full">
+                    <Button
+                      type="button"
+                      onClick={loadNextProblem}
+                      color="blue"
+                      className="w-full py-4 text-base font-black uppercase tracking-widest shadow-[0_4px_0_#1d4ed8] active:shadow-none active:translate-y-1 hover:-translate-y-0.5 transition-all"
+                    >
+                      SIGUIENTE PREGUNTA <Icon name="arrow_right" size={20} className="inline-block ml-1" />
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => { playClickSound(); setShowMistakes(true); }}
+                      className="w-full mt-3 text-xs font-black text-slate-500 hover:text-blue-600 underline underline-offset-2 transition-colors"
+                    >
+                      Ver la explicación en mis Errores
+                    </button>
+                  </motion.div>
+                ) : (
                   <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.3 }}>
                     <h4 className="text-slate-500 font-bold mb-4 text-[13px]">Ingresa tu respuesta:</h4>
-                    
+
                     {currentProblem.data.visualData?.type === 'truth_table' ? (
                       <TruthTableInput 
                         formula={currentProblem.data.visualData.formula}
@@ -2365,7 +2553,8 @@ export default function App() {
           transition={{ duration: 0.5, delay: 3.0, ease: "easeOut" }}
           className="nav-sidebar lg:hidden landscape:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t-2 border-slate-200 p-2 z-[100] flex justify-around items-center pb-safe"
         >
-          <button onClick={() => setViewMode('map')} className={`p-2 rounded-xl flex flex-col items-center gap-1 ${viewMode === 'map' ? 'text-blue-500' : 'text-slate-400'}`}>
+          {!isStaff && (<>
+          <button onClick={() => { setSelectedTopic(null); setViewMode('map'); }} className={`p-2 rounded-xl flex flex-col items-center gap-1 ${viewMode === 'map' ? 'text-blue-500' : 'text-slate-400'}`}>
             <Icon name="home" />
             <span className="text-[9px] font-black uppercase tracking-wider">Aprender</span>
           </button>
@@ -2382,15 +2571,16 @@ export default function App() {
             <Icon name="store" />
             <span className="text-[9px] font-black uppercase tracking-wider">Tienda</span>
           </button>
+          </>)}
           <button onClick={() => setViewMode('profile')} className={`p-2 rounded-xl flex flex-col items-center gap-1 ${viewMode === 'profile' ? 'text-blue-500' : 'text-slate-400'}`}>
             <Icon name="user" />
             <span className="text-[9px] font-black uppercase tracking-wider">Perfil</span>
           </button>
 
-          {(user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'secretary') && (
+          {isStaff && (
             <button onClick={() => setViewMode('teacher_dash')} className={`p-2 rounded-xl flex flex-col items-center gap-1 ${viewMode === 'teacher_dash' ? 'text-blue-500' : 'text-slate-400'}`}>
               <Icon name="users" />
-              <span className="text-[9px] font-black uppercase tracking-wider">Alumnos</span>
+              <span className="text-[9px] font-black uppercase tracking-wider">Usuario</span>
             </button>
           )}
 
@@ -2510,7 +2700,7 @@ export default function App() {
             <p className="text-slate-600 font-bold mb-6 text-sm">
               Has salido de la mesa de trabajo o abierto otra pestaña. Un buen inversionista mantiene su atención absoluta en el mercado para evitar pérdidas.
             </p>
-            <Button onClick={() => setShowDistractionWarning(false)} color="rose" className="w-full">
+            <Button onClick={() => setShowDistractionWarning(false)} color="red" className="w-full">
               Volver a Concentrarme
             </Button>
           </Card>
@@ -2518,24 +2708,28 @@ export default function App() {
       )}
 
       {showShellGame && (
-        <ShellGameMinigame 
-          onFinish={onFinishShellGame} 
-          playClick={playClickSound} 
-          playCatch={playCatchSound} 
-          playTick={playRouletteTick} 
-          playRainbow={playRainbowSound} 
-          playError={playErrorAlertSound} 
-        />
+        <Suspense fallback={null}>
+          <ShellGameMinigame 
+            onFinish={onFinishShellGame} 
+            playClick={playClickSound} 
+            playCatch={playCatchSound} 
+            playTick={playRouletteTick} 
+            playRainbow={playRainbowSound} 
+            playError={playErrorAlertSound} 
+          />
+        </Suspense>
       )}
 
       {showPetRace && (
-        <PetRaceMinigame 
-          onFinish={onFinishPetRace} 
-          playClick={playClickSound} 
-          playCatch={playCatchSound} 
-          playTick={playRouletteTick} 
-          playRainbow={playRainbowSound} 
-        />
+        <Suspense fallback={null}>
+          <PetRaceMinigame 
+            onFinish={onFinishPetRace} 
+            playClick={playClickSound} 
+            playCatch={playCatchSound} 
+            playTick={playRouletteTick} 
+            playRainbow={playRainbowSound} 
+          />
+        </Suspense>
       )}
 
       <AudioToggle />

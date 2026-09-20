@@ -18,7 +18,7 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
 const getAuthErrorMessage = (code?: string) =>
   (code && AUTH_ERROR_MESSAGES[code]) || 'Ocurrió un error. Intenta de nuevo.';
 
-export const ColegioLogin: React.FC<{ onLoginSuccess: () => void }> = ({ onLoginSuccess }) => {
+export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterSchool: () => void }> = ({ onLoginSuccess, onRegisterSchool }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -230,8 +230,8 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void }> = ({ onLogin
         <div ref={circle5Ref} className="circle circle-5"></div>
       </div>
 
-      <div className="w-full max-w-md px-6 relative z-10">
-        <div ref={cardRef} className="login-glass-card rounded-[2rem] p-10 relative overflow-hidden z-10 bg-white">
+      <div className="w-full max-w-md px-6 relative z-30">
+        <div ref={cardRef} className="login-glass-card rounded-[2rem] p-10 relative overflow-hidden z-30 bg-white">
           <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-slate-50 to-transparent rounded-bl-full pointer-events-none"></div>
 
           <div className="text-center mb-10">
@@ -305,9 +305,19 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void }> = ({ onLogin
             </div>
           </form>
 
-          <div className="mt-6 pt-6 border-t border-slate-100 text-center">
+          <div className="mt-6 pt-6 border-t border-slate-100 text-center space-y-2">
             <p className="text-xs text-slate-400 font-medium">
               ¿No tienes cuenta? Pídele a tu profesor o al colegio que te la cree.
+            </p>
+            <p className="text-xs text-slate-400 font-medium">
+              ¿Tu colegio aún no está en la plataforma?{' '}
+              <button
+                type="button"
+                onClick={onRegisterSchool}
+                className="text-blue-500 hover:text-blue-700 font-bold underline underline-offset-2"
+              >
+                Regístralo aquí
+              </button>
             </p>
           </div>
 

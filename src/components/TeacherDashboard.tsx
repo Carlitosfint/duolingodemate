@@ -4,6 +4,8 @@ import { Icon } from './CustomIcons';
 import { auth } from '../lib/firebase.ts';
 import { AdminCreateAccounts } from './AdminCreateAccounts';
 import { SchoolSettings } from './SchoolSettings';
+import { SchoolStaff } from './SchoolStaff';
+import { ClassroomMistakes } from './ClassroomMistakes';
 
 // Defined at module scope (not inside TeacherDashboard) so it keeps a
 // stable identity across re-renders — otherwise React would remount it
@@ -30,15 +32,24 @@ const EditableText: React.FC<{ value: string; onSave: (value: string) => void; p
 
 const GRADES = ['3ro', '4to', '5to'] as const;
 
-export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ currentUserRole }) => {
+export const TeacherDashboard: React.FC<{ currentUserRole?: string; currentUserUid?: string }> = ({ currentUserRole, currentUserUid }) => {
+  // Enrollment duties (resetting a student's password, deactivating them)
+  // belong to the admin and the secretary, not to every teacher.
+  const canManageEnrollment = currentUserRole === 'admin' || currentUserRole === 'secretary';
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedClassroomFilter, setSelectedClassroomFilter] = useState<string>('all');
+  // A failed load or edit used to do nothing at all: the table just stayed
+  // empty (reading as "no students yet") or the edit silently reverted.
+  const [error, setError] = useState<string | null>(null);
 
   const fetchStudents = async () => {
     try {
       const user = auth.currentUser;
-      if (!user) return;
+      if (!user) {
+        setError('Tu sesión expiró. Vuelve a iniciar sesión.');
+        return;
+      }
       const token = await user.getIdToken();
       const res = await fetch('/api/teacher/students', {
         headers: {
@@ -48,17 +59,87 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
       if (res.ok) {
         const data = await res.json();
         setStudents(data);
+        setError(null);
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error || 'No se pudo cargar la lista de alumnos.');
       }
     } catch (e) {
       console.error(e);
+      setError('Error de conexión al cargar los alumnos.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
+  };
+
+  const [resettingUid, setResettingUid] = useState<string | null>(null);
+  const [newPassword, setNewPassword] = useState<{ name: string; email: string; tempPassword: string } | null>(null);
+
+  const resetPassword = async (student: any) => {
+    if (!window.confirm(`¿Restablecer la contraseña de ${student.name}? La contraseña anterior dejará de funcionar.`)) return;
+    setResettingUid(student.uid);
+    setNewPassword(null);
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        setError('Tu sesión expiró. Vuelve a iniciar sesión.');
+        return;
+      }
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/admin/users/${student.uid}/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setNewPassword(body);
+        setError(null);
+      } else {
+        setError(body.error || 'No se pudo restablecer la contraseña.');
+      }
+    } catch (e) {
+      console.error(e);
+      setError('Error de conexión al restablecer la contraseña.');
+    } finally {
+      setResettingUid(null);
+    }
+  };
+
+  const setActive = async (student: any, active: boolean) => {
+    const verb = active ? 'reactivar' : 'dar de baja a';
+    if (!window.confirm(`¿Seguro que quieres ${verb} ${student.name}?${active ? '' : ' No podrá iniciar sesión, pero su historial se conserva.'}`)) return;
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        setError('Tu sesión expiró. Vuelve a iniciar sesión.');
+        return;
+      }
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/admin/users/${student.uid}/active`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ active }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setError(null);
+        fetchStudents();
+      } else {
+        setError(body.error || 'No se pudo actualizar el estado de la cuenta.');
+      }
+    } catch (e) {
+      console.error(e);
+      setError('Error de conexión al actualizar el estado.');
+    }
   };
 
   const updateStudent = async (uid: string, updates: any) => {
     try {
       const user = auth.currentUser;
-      if (!user) return;
+      if (!user) {
+        setError('Tu sesión expiró. Vuelve a iniciar sesión.');
+        return;
+      }
       const token = await user.getIdToken();
       const res = await fetch(`/api/teacher/student/${uid}`, {
         method: 'POST',
@@ -69,10 +150,15 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
         body: JSON.stringify(updates)
       });
       if (res.ok) {
+        setError(null);
         fetchStudents();
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error || 'No se pudo guardar el cambio.');
       }
     } catch (e) {
       console.error(e);
+      setError('Error de conexión al guardar el cambio.');
     }
   };
 
@@ -102,9 +188,11 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
         <AdminCreateAccounts canManageStaff={currentUserRole === 'admin'} />
       )}
 
-      <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-black text-slate-800">Panel de Profesor / Admin</h2>
-        <div className="flex items-center gap-4">
+      {currentUserRole === 'admin' && <SchoolStaff currentUserUid={currentUserUid} />}
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-2xl sm:text-3xl font-black text-slate-800">Panel de Profesor / Admin</h2>
+        <div className="flex items-center gap-3 flex-wrap">
           <select
             value={selectedClassroomFilter}
             onChange={(e) => setSelectedClassroomFilter(e.target.value)}
@@ -122,6 +210,44 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
           </Button>
         </div>
       </div>
+
+      <ClassroomMistakes classroom={selectedClassroomFilter === 'all' || selectedClassroomFilter === 'none' ? '' : selectedClassroomFilter} />
+
+      {error && (
+        <div className="flex items-start gap-3 p-4 rounded-2xl bg-rose-50 border-2 border-rose-200 text-rose-700 font-bold text-sm">
+          <Icon name="alert" size={18} className="shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {newPassword && (
+        <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-200">
+          <p className="font-black text-emerald-800 text-sm mb-1">
+            Contraseña restablecida: {newPassword.name}
+          </p>
+          <p className="text-sm text-emerald-900">
+            Correo: <span className="font-mono font-bold">{newPassword.email}</span> — Nueva contraseña:{' '}
+            <span className="font-mono font-bold bg-white px-2 py-0.5 rounded border border-emerald-200">{newPassword.tempPassword}</span>
+          </p>
+          <div className="flex items-center gap-3 mt-2">
+            <button
+              onClick={() => navigator.clipboard?.writeText(newPassword.tempPassword).catch(() => {})}
+              className="text-xs font-black text-emerald-700 underline underline-offset-2 hover:text-emerald-900"
+            >
+              Copiar contraseña
+            </button>
+            <button
+              onClick={() => setNewPassword(null)}
+              className="text-xs font-black text-slate-500 underline underline-offset-2 hover:text-slate-700"
+            >
+              Ocultar
+            </button>
+          </div>
+          <p className="text-[11px] text-emerald-700 mt-2">
+            Anótala ahora, no se volverá a mostrar. Entrégasela solo a esa persona.
+          </p>
+        </div>
+      )}
 
       <Card className="p-0 !items-start !text-left w-full overflow-hidden">
         <div className="w-full overflow-x-auto">
@@ -155,47 +281,68 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
               }).map((student) => {
                 const stats = student.stats || {};
                 return (
-                  <tr key={student.uid} className="hover:bg-slate-50 transition-colors">
+                  <tr key={student.uid} className={`transition-colors ${student.active === false ? 'bg-slate-50 opacity-60' : 'hover:bg-slate-50'}`}>
                     <td className="p-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-xl shrink-0">
                           {student.avatar === 'fox' ? '🦊' : student.avatar === 'cat' ? '🐱' : student.avatar === 'panda' ? '🐼' : student.avatar === 'tiger' ? '🐯' : student.avatar === 'lion' ? '🦁' : student.avatar === 'bear' ? '🐻' : '🦊'}
                         </div>
-                        <EditableText
-                          value={student.name}
-                          onSave={(v) => updateStudent(student.uid, { name: v })}
-                          className="font-black text-slate-800 bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-400 outline-none rounded-lg px-1.5 py-1 min-w-[130px]"
-                        />
+                        {canManageEnrollment ? (
+                          <EditableText
+                            value={student.name}
+                            onSave={(v) => updateStudent(student.uid, { name: v })}
+                            className="font-black text-slate-800 bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-400 outline-none rounded-lg px-1.5 py-1 min-w-[130px]"
+                          />
+                        ) : (
+                          <span className="font-black text-slate-800 px-1.5 py-1">{student.name}</span>
+                        )}
+                        {student.active === false && (
+                          <span className="shrink-0 px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[9px] font-black uppercase tracking-widest">
+                            De baja
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="p-4 text-slate-500 font-medium">{student.email}</td>
                     <td className="p-4">
-                      <EditableText
-                        value={student.dni || ''}
-                        onSave={(v) => updateStudent(student.uid, { dni: v })}
-                        placeholder="—"
-                        className="w-24 px-2 py-1 text-xs rounded-lg border border-transparent hover:border-slate-200 focus:border-blue-400 outline-none bg-transparent focus:bg-white"
-                      />
+                      {canManageEnrollment ? (
+                        <EditableText
+                          value={student.dni || ''}
+                          onSave={(v) => updateStudent(student.uid, { dni: v })}
+                          placeholder="—"
+                          className="w-24 px-2 py-1 text-xs rounded-lg border border-transparent hover:border-slate-200 focus:border-blue-400 outline-none bg-transparent focus:bg-white"
+                        />
+                      ) : (
+                        <span className="text-xs px-2 py-1 text-slate-600">{student.dni || '—'}</span>
+                      )}
                     </td>
                     <td className="p-4">
-                      <select
-                        value={student.grade || ''}
-                        onChange={(e) => updateGradeOrSection(student, { grade: e.target.value })}
-                        className="px-2 py-1 text-xs rounded-lg border border-slate-200 text-slate-600 outline-none focus:ring-1 focus:ring-blue-500 bg-slate-50 hover:bg-white"
-                      >
-                        <option value="">- Grado -</option>
-                        {GRADES.map((g) => (
-                          <option key={g} value={g}>{g}</option>
-                        ))}
-                      </select>
+                      {canManageEnrollment ? (
+                        <select
+                          value={student.grade || ''}
+                          onChange={(e) => updateGradeOrSection(student, { grade: e.target.value })}
+                          className="px-2 py-1 text-xs rounded-lg border border-slate-200 text-slate-600 outline-none focus:ring-1 focus:ring-blue-500 bg-slate-50 hover:bg-white"
+                        >
+                          <option value="">- Grado -</option>
+                          {GRADES.map((g) => (
+                            <option key={g} value={g}>{g}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-xs px-2 py-1 text-slate-600">{student.grade || '—'}</span>
+                      )}
                     </td>
                     <td className="p-4">
-                      <EditableText
-                        value={student.section || ''}
-                        onSave={(v) => updateGradeOrSection(student, { section: v })}
-                        placeholder="—"
-                        className="w-14 px-2 py-1 text-xs rounded-lg border border-transparent hover:border-slate-200 focus:border-blue-400 outline-none bg-transparent focus:bg-white"
-                      />
+                      {canManageEnrollment ? (
+                        <EditableText
+                          value={student.section || ''}
+                          onSave={(v) => updateGradeOrSection(student, { section: v })}
+                          placeholder="—"
+                          className="w-14 px-2 py-1 text-xs rounded-lg border border-transparent hover:border-slate-200 focus:border-blue-400 outline-none bg-transparent focus:bg-white"
+                        />
+                      ) : (
+                        <span className="text-xs px-2 py-1 text-slate-600">{student.section || '—'}</span>
+                      )}
                     </td>
                     <td className="p-4 text-center text-blue-600 font-black">{student.progress}</td>
                     <td className="p-4 text-center text-amber-500 font-black">{student.coins}</td>
@@ -215,6 +362,25 @@ export const TeacherDashboard: React.FC<{ currentUserRole?: string }> = ({ curre
                         <button onClick={() => updateStudent(student.uid, { progress: (student.progress || 0) + 20 })} className="bg-emerald-100 text-emerald-700 p-2 rounded-lg hover:bg-emerald-200 transition-colors" title="Avanzar nivel">
                           <Icon name="arrow_up" size={14} />
                         </button>
+                        {canManageEnrollment && (
+                          <>
+                            <button
+                              onClick={() => resetPassword(student)}
+                              disabled={resettingUid === student.uid}
+                              className="bg-slate-100 text-slate-600 p-2 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-40"
+                              title="Restablecer contraseña"
+                            >
+                              <Icon name="key" size={14} />
+                            </button>
+                            <button
+                              onClick={() => setActive(student, student.active === false)}
+                              className={`p-2 rounded-lg transition-colors ${student.active === false ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-100 text-slate-600 hover:bg-rose-100 hover:text-rose-700'}`}
+                              title={student.active === false ? 'Reactivar cuenta' : 'Dar de baja'}
+                            >
+                              <Icon name={student.active === false ? 'user_check' : 'user_minus'} size={14} />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>

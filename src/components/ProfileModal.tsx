@@ -7,7 +7,7 @@ import { Avatar } from './Avatar';
 interface ProfileModalProps {
   onClose?: () => void;
   stats: Stats;
-  user: { name: string; avatar: string; coins: number; tickets: number };
+  user: { name: string; email?: string; role?: string; avatar: string; coins: number; tickets: number };
   trophies: Trophy[];
   coinsSpent: number;
   skipsUsed: number;
@@ -16,6 +16,7 @@ interface ProfileModalProps {
   onLogout?: () => void;
   onOpenCodice?: () => void;
   onOpenMistakes?: () => void;
+  onGoToUsers?: () => void;
 }
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({
@@ -29,8 +30,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   onReplayTutorial,
   onLogout,
   onOpenCodice,
-  onOpenMistakes
+  onOpenMistakes,
+  onGoToUsers
 }) => {
+  const isStaff = user.role === 'teacher' || user.role === 'admin' || user.role === 'secretary';
   const content = (
     <div className={`w-full ${isInline ? 'h-full bg-white border-0 rounded-none overflow-hidden flex flex-col' : 'max-w-4xl bg-white border-[6px] border-slate-200 rounded-[2.5rem] md:rounded-[3rem] p-6 md:p-10 my-8 shadow-2xl animate-pop'} text-slate-800 relative`}>
       <div className={`flex flex-col lg:flex-row justify-between items-center gap-4 mb-8 border-b-2 border-slate-100 pb-6 relative z-10 ${isInline ? 'p-4 lg:p-8 pt-6 lg:pt-10 pb-6 shrink-0 mb-0' : ''}`}>
@@ -81,8 +84,55 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         </div>
       </div>
 
-      <div className={`grid grid-cols-1 lg:grid-cols-3 gap-6 relative z-10 no-scrollbar ${isInline ? 'flex-1 overflow-y-auto px-4 lg:px-8 pb-8' : 'overflow-visible'}`}>          
-          
+      {isStaff ? (
+        <div className={`grid grid-cols-1 lg:grid-cols-3 gap-6 relative z-10 no-scrollbar ${isInline ? 'flex-1 overflow-y-auto px-4 lg:px-8 pb-8' : 'overflow-visible'}`}>
+          <div className="lg:col-span-1 space-y-4">
+            <div className="bg-slate-50 border border-slate-200 p-5 rounded-3xl">
+              <h4 className="font-black text-slate-700 text-xs uppercase tracking-widest mb-3">Datos de la Cuenta</h4>
+              <div className="space-y-3 text-xs font-bold text-slate-600">
+                <div>
+                  <span className="block text-slate-400 text-[10px] uppercase tracking-widest mb-0.5">Nombre</span>
+                  <span className="text-slate-800 font-black text-sm break-words">{user.name}</span>
+                </div>
+                <div>
+                  <span className="block text-slate-400 text-[10px] uppercase tracking-widest mb-0.5">Correo</span>
+                  <span className="text-slate-800 font-black text-sm break-words">{user.email || '—'}</span>
+                </div>
+                <div>
+                  <span className="block text-slate-400 text-[10px] uppercase tracking-widest mb-0.5">Rol</span>
+                  <span className="text-purple-700 font-black text-sm">
+                    {user.role === 'admin' ? 'Administrador' : user.role === 'secretary' ? 'Secretario' : 'Profesor'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="lg:col-span-2 space-y-4">
+            <div className="bg-slate-50 border border-slate-200 p-5 rounded-3xl">
+              <h4 className="font-black text-slate-700 text-xs uppercase tracking-widest mb-3">Accesos Rápidos</h4>
+              {onGoToUsers ? (
+                <button
+                  onClick={onGoToUsers}
+                  className="w-full flex items-center gap-4 p-4 bg-white border border-slate-200 hover:border-blue-300 hover:shadow-sm rounded-2xl transition-all text-left"
+                >
+                  <div className="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                    <Icon name="users" size={22} />
+                  </div>
+                  <div className="min-w-0">
+                    <h5 className="font-black text-sm text-slate-800">Gestionar Usuarios</h5>
+                    <p className="text-[11px] text-slate-500 font-medium leading-tight">Crear cuentas y configurar tu colegio.</p>
+                  </div>
+                </button>
+              ) : (
+                <p className="text-slate-400 font-medium italic text-[11px]">Nada por aquí todavía.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+      <div className={`grid grid-cols-1 lg:grid-cols-3 gap-6 relative z-10 no-scrollbar ${isInline ? 'flex-1 overflow-y-auto px-4 lg:px-8 pb-8' : 'overflow-visible'}`}>
+
         <div className="lg:col-span-1 space-y-4">
             <div className="bg-slate-50 border border-slate-200 p-5 rounded-3xl">
               <h4 className="font-black text-slate-700 text-xs uppercase tracking-widest mb-3">Tus Recursos</h4>
@@ -131,7 +181,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 </div>
               </div>
             </div>
-            
+
             <div className="bg-slate-50 border border-slate-200 p-5 rounded-3xl mt-4">
               <h4 className="font-black text-slate-700 text-xs uppercase tracking-widest mb-3">Tickets por Tema</h4>
               <div className="space-y-2 text-xs font-bold text-slate-600">
@@ -143,7 +193,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 ))}
               </div>
             </div>
-            
+
           </div>
 
           <div className="lg:col-span-2 space-y-4">
@@ -154,8 +204,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   const unlocked = t.req(stats, user.coins, skipsUsed, coinsSpent);
                   const isIconKey = t.icon && (t.icon.length > 2 || /^[a-z_]+$/i.test(t.icon));
                   return (
-                    <div 
-                       key={t.id} 
+                    <div
+                       key={t.id}
                        className={`p-3.5 rounded-2xl border flex items-center gap-3 transition-all ${unlocked ? 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-300 shadow-sm' : 'bg-slate-100/50 border-slate-200 opacity-60'}`}
                     >
                       <div className={`w-10 h-10 flex items-center justify-center shrink-0 ${unlocked ? 'animate-pulse' : 'grayscale'}`}>
@@ -176,7 +226,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             </div>
           </div>
         </div>
-      </div>
+      )}
+    </div>
   );
 
   if (isInline) return content;

@@ -13,28 +13,22 @@ export function generatePlanteoEcuaciones(isGolden: boolean): ProblemData {
     const a = rnd(2, 5);
     const diff = 2 * a * x + a * a;
     
-    intro = `Si al cuadrado de un número le sumamos ${a}, y luego elevamos el resultado original más ${a} al cuadrado y le restamos el cuadrado del número original, la diferencia es ${diff}. (En otras palabras, la diferencia entre el cuadrado del número aumentado en ${a} y el cuadrado del número original es ${diff}). ¿Cuál es el número?`;
+    intro = `Si a un número lo aumentamos en ${a} y elevamos el resultado al cuadrado, obtenemos ${diff} más que el cuadrado del número original. ¿Cuál es el número?`;
     expected = x;
     explanation = `Sea 'x' el número. Planteamos: (x + ${a})² - x² = ${diff}. Resolviendo: x² + ${2*a}x + ${a*a} - x² = ${diff} => ${2*a}x = ${diff - a*a} => x = ${x}.`;
   } else {
-    const p = rnd(10, 20); 
-    const area = rnd(20, 40); 
-    const sum = rnd(10, 20); 
-    const diff_sq = rnd(1, 5) * 2; 
-    
-    const x_val = (sum + diff_sq) / 2;
-    const y_val = sum - x_val;
-    if (Number.isInteger(x_val) && x_val > 0 && y_val > 0) {
-      const p_real = sum * 2;
-      const area_real = x_val * y_val;
-      intro = `Un terreno rectangular tiene un perímetro de ${p_real} m y un área de ${area_real} m². ¿Cuál es la longitud de su lado mayor en metros?`;
-      expected = Math.max(x_val, y_val);
-      explanation = `Sean x e y los lados. Perímetro = 2(x+y) = ${p_real} => x+y = ${sum}. Área = x·y = ${area_real}. Resolviendo el sistema (buscando dos números que sumen ${sum} y multipliquen ${area_real}), los lados son ${x_val} y ${y_val}. El mayor es ${expected}.`;
-    } else {
-      intro = `Si a un número se le multiplica por 3, se le resta 5, y al resultado se le eleva al cuadrado, se obtiene 64. Si el número es positivo, ¿cuál es?`;
-      expected = 3;
-      explanation = `Sea x el número. (3x - 5)² = 64. Como es positivo, 3x - 5 = 8 => 3x = 13 (no entero). Fallback estático: Sea x. (3x - 5)² = 16 => 3x - 5 = 4 => 3x = 9 => x = 3.`;
-    }
+    // Pick the two sides directly so they're always positive integers with
+    // a well-defined larger side, instead of deriving them from a sum/
+    // difference-of-squares pair that isn't always an integer solution.
+    const x_val = rnd(6, 15);
+    const y_val = rnd(4, x_val - 1);
+    const sum = x_val + y_val;
+    const p_real = sum * 2;
+    const area_real = x_val * y_val;
+
+    intro = `Un terreno rectangular tiene un perímetro de ${p_real} m y un área de ${area_real} m². ¿Cuál es la longitud de su lado mayor en metros?`;
+    expected = x_val;
+    explanation = `Sean x e y los lados. Perímetro = 2(x+y) = ${p_real} => x+y = ${sum}. Área = x·y = ${area_real}. Resolviendo el sistema (buscando dos números que sumen ${sum} y multipliquen ${area_real}), los lados son ${x_val} y ${y_val}. El mayor es ${expected}.`;
   }
 
   if (isGolden) {
@@ -67,16 +61,21 @@ export function generateEdades(isGolden: boolean): ProblemData {
     const tu_presente = yo_pasado; 
     const yo_presente = tu_presente + diferencia;
     
-    intro = `Yo tengo ${yo_presente} años, que es el doble de la edad que tú tenías. Cuando tú tengas mi edad actual, ¿cuál será la suma de nuestras edades?`;
+    intro = `Cuando tú tenías ${tu_pasado} años, yo tenía ${yo_pasado}. Hoy yo tengo ${yo_presente} años. Cuando tú tengas mi edad actual, ¿cuál será la suma de nuestras edades?`;
     const tu_futuro = yo_presente;
     const yo_futuro = tu_futuro + diferencia;
     expected = yo_futuro + tu_futuro;
-    explanation = `Yo tengo ${yo_presente}. Cuando tú tenías la mitad (${yo_presente/2}), mi edad era ${yo_presente - diferencia}. La diferencia de edades es constante (${diferencia}). Cuando tú tengas mi edad (${tu_futuro}), yo tendré ${yo_futuro}. La suma es ${expected}.`;
+    explanation = `La diferencia de edades es constante: ${yo_pasado} - ${tu_pasado} = ${diferencia} años. Cuando tú tengas mi edad actual (${tu_futuro}), yo tendré ${tu_futuro} + ${diferencia} = ${yo_futuro} (la diferencia se mantiene). La suma de nuestras edades será ${tu_futuro} + ${yo_futuro} = ${expected}.`;
   } else if (t === 1) {
     // Tipo 2: E + x = factor * (E - y)
-    const factor = rnd(2, 4); 
-    const E = rnd(15, 30);
-    const y = rnd(3, 8); 
+    const factor = rnd(2, 4);
+    const y = rnd(3, 8);
+    // x = (factor-1)·E - factor·y. Sin acotarlo salían enunciados absurdos
+    // como "dentro de 69 años mi edad será...". Se despeja el rango de E que
+    // deja x entre 2 y 25 años, que es un plazo creíble para un escolar.
+    const loE = Math.max(12, Math.ceil((2 + factor * y) / (factor - 1)));
+    const hiE = Math.min(40, Math.floor((25 + factor * y) / (factor - 1)));
+    const E = hiE >= loE ? rnd(loE, hiE) : loE;
     const x = factor * (E - y) - E;
     const factorText = factor === 2 ? 'el doble' : factor === 3 ? 'el triple' : 'el cuádruple';
     
@@ -84,17 +83,22 @@ export function generateEdades(isGolden: boolean): ProblemData {
     expected = E;
     explanation = `Sea E mi edad actual. Dentro de ${x} años tendré (E + ${x}). Hace ${y} años tenía (E - ${y}). Planteamos: E + ${x} = ${factor}(E - ${y}) => E + ${x} = ${factor}E - ${factor * y} => ${x + factor * y} = ${factor - 1}E => E = ${E}.`;
   } else {
-    // Tipo 3: Relación de edades
+    // Tipo 3: Relación de edades. La razón base era siempre "3 a 5", así que
+    // el alumno veía la misma pregunta una y otra vez.
+    const ratios = [[2, 3], [3, 4], [3, 5], [4, 5], [5, 6], [5, 7], [4, 7], [2, 5]];
+    const [a, b] = ratios[rnd(0, ratios.length - 1)];
     const k = rnd(3, 7);
-    const a = 3, b = 5;
-    const pastOffset = rnd(1, 2) * k; 
-    
+
     const edadA = a * k;
     const edadB = b * k;
-    const aFuturo = a + rnd(1, 2);
-    const bFuturo = b + aFuturo - a; 
-    const kFuturo = k;
-    const añosFuturo = (aFuturo * kFuturo) - edadA;
+    // Los años que pasan son un múltiplo de k, así la razón futura queda
+    // exacta: (a+m)k : (b+m)k, que se simplifica a (a+m):(b+m).
+    const m = rnd(1, 3);
+    const añosFuturo = m * k;
+    const gcd = (p: number, q: number): number => (q === 0 ? p : gcd(q, p % q));
+    const g = gcd(a + m, b + m);
+    const aFuturo = (a + m) / g;
+    const bFuturo = (b + m) / g;
 
     if (añosFuturo > 0) {
       intro = `Las edades de Ana y Beto están en relación de ${a} a ${b}. Dentro de ${añosFuturo} años estarán en relación de ${aFuturo} a ${bFuturo}. ¿Cuántos años tiene Beto?`;
@@ -196,7 +200,7 @@ export function generateCronometria(isGolden: boolean): ProblemData {
 
 export function generateLogicaInferencial(isGolden: boolean, level: number = 50): ProblemData {
   let intro, expected, explanation;
-  let visualData = null;
+  let visualData: any = null;
   
   // Nivel bajo o progreso inicial (< 40 en el curso general, que aquí mapea a < 51, 
   // o si están en los primeros ejercicios). Usaremos level para determinar.
@@ -217,7 +221,7 @@ export function generateLogicaInferencial(isGolden: boolean, level: number = 50)
     else if (mod === 2) formula_text = `p ${op_symbol} ~q`;
 
     let expected_str = "";
-    let explanation_rows = [];
+    let explanation_rows: string[] = [];
     
     const rows = [
       { p: true, q: true, p_str: "V", q_str: "V" },
@@ -261,9 +265,9 @@ Por lo tanto, la matriz principal (de arriba hacia abajo) es **${expected_str}**
   } else {
     const t = rnd(0, 1);
     if (t === 0) {
-      intro = `Un jarrón fue roto. Ana dice: "Beto lo rompió". Beto dice: "Carlos lo rompió". Carlos dice: "Beto miente". Si solo uno de los tres dice la verdad, ¿cuántas letras tiene el nombre de quien rompió el jarrón?`;
-      expected = 3; 
-      explanation = `Beto y Carlos se contradicen. Uno de los dos debe decir la verdad. Como solo hay 1 verdad en total, Ana miente. Entonces Beto no lo rompió. Si Beto dijera la verdad, Carlos lo habría roto, pero entonces Carlos mentiría. Si Carlos dice la verdad, Beto miente (Carlos no fue). Como Ana miente, Beto miente y Carlos dice la verdad. Entonces, ninguno de los mencionados por los mentirosos es. Espera: si Ana miente (no fue Beto), y Beto miente (no fue Carlos), el culpable fue Ana (3 letras).`;
+      intro = `Un jarrón fue roto. Ana dice: "Beto lo rompió". Beto dice: "Carlos lo rompió". Carlos dice: "Beto miente". Si solo uno de los tres miente, ¿cuántas letras tiene el nombre de quien rompió el jarrón?`;
+      expected = 4;
+      explanation = `La afirmación de Carlos ("Beto miente") es, por definición, la negación de la afirmación de Beto: entre Beto y Carlos, uno dice la verdad y el otro miente, siempre. Como solo hay 1 mentiroso en total y ya está entre esos dos, Ana debe decir la verdad: "Beto lo rompió". Comprobando: si Beto es el culpable, su propia afirmación ("Carlos lo rompió") es falsa, y la de Carlos ("Beto miente") es verdadera. Entonces Ana dice la verdad, Beto miente y Carlos dice la verdad: exactamente 1 mentiroso. El culpable es Beto (4 letras).`;
     } else {
       const rojas = rnd(4, 7);
       const azules = rnd(4, 7);
@@ -303,18 +307,31 @@ export function generateMezclasAleaciones(isGolden: boolean): ProblemData {
     const vol1 = rnd(2, 5) * 10;
     const grado1 = rnd(20, 40);
     const vol2 = rnd(1, 4) * 10;
-    const grado2 = rnd(50, 80);
-    
     const total_vol = vol1 + vol2;
-    const mean = Math.round((vol1 * grado1 + vol2 * grado2) / total_vol);
-    
-    intro = `Se mezclan ${vol1}L de alcohol al ${grado1}% con ${vol2}L de alcohol al ${grado2}%. ¿Cuál es el grado de pureza (%) aproximado de la mezcla resultante?`;
+
+    // grado2 is chosen so the weighted mean lands on a whole number. With a
+    // rounded mean the exact answer (48.33) failed the ±0.05 check while the
+    // rounded one (48) passed — the student was right and marked wrong.
+    const exact: number[] = [];
+    for (let g = 50; g <= 80; g++) {
+      if ((vol1 * grado1 + vol2 * g) % total_vol === 0) exact.push(g);
+    }
+    const grado2 = exact.length ? exact[rnd(0, exact.length - 1)] : 60;
+    const mean = (vol1 * grado1 + vol2 * grado2) / total_vol;
+
+    intro = `Se mezclan ${vol1}L de alcohol al ${grado1}% con ${vol2}L de alcohol al ${grado2}%. ¿Cuál es el grado de pureza (%) de la mezcla resultante?`;
     expected = mean;
-    explanation = `Grado medio = (V1·G1 + V2·G2) / (V1 + V2) = (${vol1}·${grado1} + ${vol2}·${grado2}) / ${total_vol} ≈ ${mean}%.`;
+    explanation = `Grado medio = (V1·G1 + V2·G2) / (V1 + V2) = (${vol1}·${grado1} + ${vol2}·${grado2}) / ${total_vol} = ${vol1 * grado1 + vol2 * grado2} / ${total_vol} = ${mean}%.`;
   } else {
-    intro = `Un grifo llena un tanque en 4 horas y otro grifo lo llena en 12 horas. Si se abren ambos a la vez, ¿en cuántas horas se llenará el tanque?`;
-    expected = 3;
-    explanation = `En 1 hora, el primero llena 1/4 y el segundo 1/12. Juntos llenan 1/4 + 1/12 = 3/12 + 1/12 = 4/12 = 1/3 del tanque. Por lo tanto, tardarán 3 horas.`;
+    // Pairs whose combined time is exact, so the answer is never a rounded
+    // decimal. Previously this branch was a single hard-coded 4h/12h problem.
+    const pairs = [[3, 6], [4, 12], [6, 12], [5, 20], [6, 30], [10, 15], [9, 18], [12, 24], [10, 40], [14, 35], [21, 28], [12, 36]];
+    const [t1, t2] = pairs[rnd(0, pairs.length - 1)];
+    const product = t1 * t2;
+    const sum = t1 + t2;
+    expected = product / sum;
+    intro = `Un grifo llena un tanque en ${t1} horas y otro grifo lo llena en ${t2} horas. Si se abren ambos a la vez, ¿en cuántas horas se llenará el tanque?`;
+    explanation = `En 1 hora el primero llena 1/${t1} del tanque y el segundo 1/${t2}. Juntos: 1/${t1} + 1/${t2} = ${t2}/${product} + ${t1}/${product} = ${sum}/${product} del tanque por hora. Entonces el tanque completo toma ${product}/${sum} = ${expected} horas.`;
   }
 
   if (isGolden) {

@@ -13,6 +13,9 @@ export interface ProblemData {
 export interface CurrentProblem {
   data: ProblemData;
   solved: boolean;
+  // Answered wrong: the question is closed (no second try, no answer shown)
+  // and the student moves on. It's stored in "Errores" to review later.
+  failed?: boolean;
   timestamp?: number;
 }
 
@@ -33,6 +36,17 @@ export interface AlbumState {
   piecesOwned: number[];
   completed: boolean;
   claimed: boolean;
+}
+
+// A piece won from a chest or a minigame, waiting for the student to place it
+// in its album.
+export interface UnplacedPiece {
+  albumId: string;
+  albumName: string;
+  pieceIndex: number;
+  emoji: string;
+  cols: number;
+  pieces: number;
 }
 
 export interface ShopItem {
@@ -112,6 +126,7 @@ export interface UserState {
   role?: 'student' | 'teacher' | 'secretary' | 'admin';
   grade?: '3ro' | '4to' | '5to';
   name: string;
+  email?: string;
   avatar: string;
   coins: number;
   tickets: number;

@@ -1,6 +1,6 @@
 import { db } from './index.ts';
 import { users } from './schema.ts';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, ne, sql } from 'drizzle-orm';
 
 // Accounts are provisioned by a school admin (see POST /api/admin/users),
 // never self-registered, so this always runs with the caller's own
@@ -41,7 +41,9 @@ export async function countStudentsBySection(schoolId: number, grade: string) {
   const rows = await db
     .select({ section: users.section, count: sql<number>`count(*)::int` })
     .from(users)
-    .where(and(eq(users.schoolId, schoolId), eq(users.grade, grade), eq(users.role, 'student')))
+    // Students on leave don't occupy a seat: counting them would make a
+    // section look full and push every new enrollment into the other one.
+    .where(and(eq(users.schoolId, schoolId), eq(users.grade, grade), eq(users.role, 'student'), eq(users.active, true)))
     .groupBy(users.section);
   return rows;
 }
@@ -70,4 +72,30 @@ export async function getAllStudents(schoolId: number) {
   const result = await db.select().from(users)
     .where(and(eq(users.role, 'student'), eq(users.schoolId, schoolId)));
   return result;
+}
+
+// Everyone at the school who isn't a student. Without this the admin could
+// create a teacher and then never see the account again — no way to reset
+// their password or give them leave.
+export async function getSchoolStaff(schoolId: number) {
+  const result = await db.select({
+    uid: users.uid,
+    name: users.name,
+    email: users.email,
+    role: users.role,
+    active: users.active,
+    classrooms: users.classrooms,
+    createdAt: users.createdAt,
+  })
+    .from(users)
+    .where(and(eq(users.schoolId, schoolId), ne(users.role, 'student')));
+  return result;
+}
+
+// Guards against a school deactivating its last way in.
+export async function countActiveAdmins(schoolId: number) {
+  const result = await db.select({ count: sql<number>`count(*)::int` })
+    .from(users)
+    .where(and(eq(users.schoolId, schoolId), eq(users.role, 'admin'), eq(users.active, true)));
+  return result[0]?.count ?? 0;
 }
