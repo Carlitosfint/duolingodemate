@@ -15,6 +15,8 @@ View your app in AI Studio: https://ai.studio/apps/de1470c1-bbae-45b8-9a1a-c09c7
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. Run the app (a local embedded PostgreSQL database is created automatically):
    `npm run dev`
+3. Open `http://localhost:3000`. Firebase credentials are still required to
+   sign in. For AI features, copy `.env.example` to `.env.local` and set
+   `GEMINI_API_KEY`. A deployed/production instance must configure `SQL_*`.

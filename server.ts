@@ -11,7 +11,7 @@ import { canManageEnrollment, editableFieldsFor, visibleStudentsFor, ENROLLMENT_
 import {
   VALID_GRADES, EMAIL_REGEX, EMAIL_DOMAIN_REGEX, MAX_CURRENCY, MAX_PROGRESS,
   slugify, normalizeEmailDomain, studentEmailDomain, generateStudentLocalPart,
-  isUniqueViolation, clampInt, plainObject, cleanMistakes,
+  isUniqueViolation, clampInt, plainObject, cleanMistakes, cleanSections, cleanStudentUpdates,
 } from './src/lib/validation.ts';
 
 // Readable temp password (no ambiguous 0/O/1/l), handed to the admin
@@ -33,9 +33,21 @@ async function startServer() {
 
   // Database endpoints
   const { requireAuth, requirePlatformAdmin, isPlatformAdminEmail } = await import('./src/middleware/auth.ts');
+  const { databaseReady, checkDatabase, isEmbeddedDatabase } = await import('./src/db/index.ts');
   const { getUserState, updateUserState, getAllStudents, createSchoolUser, countStudentsBySection, getUserByDni, countActiveAdmins, getSchoolStaff } = await import('./src/db/users.ts');
   const { getSchool, updateSchool, createSchool, getSchoolBySlug, getSchoolByEmailDomain, deleteSchool, getSchoolsOverview } = await import('./src/db/schools.ts');
   const { adminAuth } = await import('./src/lib/firebase-admin.ts');
+  await databaseReady;
+
+  app.get('/api/health', async (_req, res) => {
+    try {
+      await checkDatabase();
+      res.json({ status: 'ok', database: isEmbeddedDatabase ? 'embedded' : 'postgres' });
+    } catch (error) {
+      console.error('Health check de base de datos falló:', error);
+      res.status(503).json({ status: 'error', database: 'unavailable' });
+    }
+  });
 
   // Section with the fewest students of this grade at this school right
   // now — keeps sections balanced no matter what order students enroll
@@ -306,10 +318,7 @@ async function startServer() {
       updates.emailDomain = domain || null;
     }
     if (Array.isArray(req.body?.sections)) {
-      updates.sections = req.body.sections
-        .map((s: any) => String(s).trim())
-        .filter(Boolean)
-        .filter((s: string, i: number, arr: string[]) => arr.indexOf(s) === i);
+      updates.sections = cleanSections(req.body.sections);
     }
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: "Nada que actualizar." });
@@ -388,12 +397,15 @@ async function startServer() {
       const lastName = String(req.body?.lastName || '').trim();
       const dni = String(req.body?.dni || '').trim();
       const grade = String(req.body?.grade || '');
-      const customEmail = String(req.body?.email || '').trim();
+      const customEmail = String(req.body?.email || '').trim().toLowerCase();
       if (!firstName || !lastName || !dni || !grade) {
         return res.status(400).json({ error: "Nombre, apellido, DNI y grado son obligatorios." });
       }
       if (!VALID_GRADES.includes(grade)) {
         return res.status(400).json({ error: "Grado inválido." });
+      }
+      if (customEmail && !EMAIL_REGEX.test(customEmail)) {
+        return res.status(400).json({ error: "El correo no es válido." });
       }
       try {
         const { dbUser, tempPassword } = await createStudentAccount({
@@ -416,10 +428,13 @@ async function startServer() {
     }
 
     // Teacher / admin: simpler shape, no enrollment fields.
-    const name = String(req.body?.name || '').trim();
-    const email = String(req.body?.email || '').trim();
+    const name = String(req.body?.name || '').trim().slice(0, 120);
+    const email = String(req.body?.email || '').trim().toLowerCase().slice(0, 200);
     if (!name || !email) {
       return res.status(400).json({ error: "Nombre y correo son obligatorios." });
+    }
+    if (!EMAIL_REGEX.test(email)) {
+      return res.status(400).json({ error: "El correo no es válido." });
     }
     let staffFirebaseUser: { uid: string } | undefined;
     try {
@@ -509,10 +524,14 @@ async function startServer() {
       const firstName = String(raw?.firstName || '').trim();
       const lastName = String(raw?.lastName || '').trim();
       const dni = String(raw?.dni || '').trim();
-      const customEmail = String(raw?.email || '').trim();
+      const customEmail = String(raw?.email || '').trim().toLowerCase();
       const name = `${firstName} ${lastName}`.trim();
       if (!firstName || !lastName || !dni) {
         results.push({ name, status: 'error', error: 'Falta nombre, apellido o DNI.' });
+        continue;
+      }
+      if (customEmail && !EMAIL_REGEX.test(customEmail)) {
+        results.push({ name, status: 'error', error: 'El correo no es válido.' });
         continue;
       }
       try {
@@ -572,16 +591,30 @@ async function startServer() {
       const allowed = editableFieldsFor(caller.role);
       // Rejected rather than silently dropped: a teacher who tries to fix a
       // DNI should be told it isn't theirs to change, not watch it revert.
-      const forbidden = ENROLLMENT_FIELDS.filter((f) => f in req.body && !allowed.includes(f));
+      const body = plainObject(req.body);
+      if (!body) return res.status(400).json({ error: 'El cuerpo de la solicitud debe ser un objeto JSON.' });
+      const forbidden = ENROLLMENT_FIELDS.filter((f) => f in body && !allowed.includes(f));
       if (forbidden.length > 0) {
         return res.status(403).json({
           error: "Los datos de matrícula (nombre, DNI, grado y sección) solo los cambia el administrador o el secretario.",
         });
       }
-      const updates: Record<string, any> = {};
-      for (const field of allowed) {
-        if (field in req.body) updates[field] = req.body[field];
+      const cleaned = cleanStudentUpdates(body, allowed);
+      if ('error' in cleaned) return res.status(400).json({ error: cleaned.error });
+      const updates: Record<string, any> = cleaned.updates;
+
+      // Classroom is derived from grade + section on the server, so the
+      // enrollment cannot contain contradictory values supplied by a client.
+      if ('grade' in updates || 'section' in updates || 'classroom' in body) {
+        const school = await getSchool(caller.schoolId);
+        const grade = String(updates.grade ?? target.grade ?? '');
+        const section = updates.section === null ? '' : String(updates.section ?? target.section ?? '');
+        if (section && Array.isArray(school?.sections) && !school.sections.includes(section)) {
+          return res.status(400).json({ error: 'La sección no existe en este colegio.' });
+        }
+        updates.classroom = section ? `${grade} ${section}`.trim() : grade;
       }
+      if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'Nada que actualizar.' });
       const updatedUser = await updateUserState(targetUid, updates);
       res.json(updatedUser);
     } catch (error) {

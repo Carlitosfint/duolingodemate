@@ -9,6 +9,10 @@ export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const MAX_CURRENCY = 10_000_000;
 export const MAX_PROGRESS = 100;
 export const MAX_MISTAKES = 50;
+export const MAX_NAME_LENGTH = 120;
+export const MAX_DNI_LENGTH = 20;
+export const MAX_SECTION_LENGTH = 20;
+export const MAX_SECTIONS = 40;
 
 // "Colegio Ángeles de Jesús" -> "colegio-angeles-de-jesus". Same shape as
 // the slugs seeded by hand in src/db/seed.ts, so both paths produce URLs and
@@ -72,4 +76,63 @@ export function cleanMistakes(value: unknown) {
     explanation: str(m?.explanation, 1200),
     topic: str(m?.topic, 60),
   }));
+}
+
+export type StudentUpdateResult =
+  | { updates: Record<string, unknown>; error?: never }
+  | { updates?: never; error: string };
+
+// Validates editable student fields before they reach Drizzle.
+export function cleanStudentUpdates(body: unknown, allowedFields: readonly string[]): StudentUpdateResult {
+  const input = plainObject(body);
+  if (!input) return { error: 'El cuerpo de la solicitud debe ser un objeto JSON.' };
+
+  const updates: Record<string, unknown> = {};
+  for (const field of allowedFields) {
+    if (!(field in input) || field === 'classroom') continue;
+    const value = input[field];
+
+    if (field === 'coins' || field === 'tickets' || field === 'progress') {
+      const cleaned = clampInt(value, field === 'progress' ? MAX_PROGRESS : MAX_CURRENCY);
+      if (cleaned === undefined) return { error: `${field} debe ser un número válido.` };
+      updates[field] = cleaned;
+      continue;
+    }
+    if (field === 'name') {
+      if (typeof value !== 'string' || !value.trim()) return { error: 'El nombre no puede quedar vacío.' };
+      updates.name = value.trim().slice(0, MAX_NAME_LENGTH);
+      continue;
+    }
+    if (field === 'dni') {
+      if (typeof value !== 'string' || !value.trim()) return { error: 'El DNI no puede quedar vacío.' };
+      updates.dni = value.trim().slice(0, MAX_DNI_LENGTH);
+      continue;
+    }
+    if (field === 'grade') {
+      if (typeof value !== 'string' || !VALID_GRADES.includes(value)) return { error: 'Grado inválido.' };
+      updates.grade = value;
+      continue;
+    }
+    if (field === 'section') {
+      if (value !== null && typeof value !== 'string') return { error: 'Sección inválida.' };
+      updates.section = typeof value === 'string' && value.trim()
+        ? value.trim().slice(0, MAX_SECTION_LENGTH)
+        : null;
+      continue;
+    }
+    if (field === 'avatar') {
+      if (typeof value !== 'string' || !value.trim()) return { error: 'Avatar inválido.' };
+      updates.avatar = value.trim().slice(0, 40);
+    }
+  }
+  return { updates };
+}
+
+export function cleanSections(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value
+    .map((section) => typeof section === 'string' ? section.trim().slice(0, MAX_SECTION_LENGTH) : '')
+    .filter(Boolean)
+    .filter((section, index, all) => all.indexOf(section) === index)
+    .slice(0, MAX_SECTIONS);
 }

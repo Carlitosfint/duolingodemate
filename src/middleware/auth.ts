@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { adminAuth } from '../lib/firebase-admin.ts';
 import { DecodedIdToken } from 'firebase-admin/auth';
-import { getUserState } from '../db/users.ts';
+import { ensureLocalUser, getUserState } from '../db/users.ts';
+import { isEmbeddedDatabase } from '../db/index.ts';
 import { getSchool } from '../db/schools.ts';
 import { users } from '../db/schema.ts';
 
@@ -76,7 +77,16 @@ export const requireAuth = async (
     // self-registered — a Firebase-authenticated user with no matching
     // row here isn't part of any school, so the request is rejected
     // rather than silently given a schoolless row.
-    const dbUser = await getUserState(decodedToken.uid);
+    let dbUser = await getUserState(decodedToken.uid);
+    if (!dbUser && isEmbeddedDatabase) {
+      dbUser = await ensureLocalUser({
+        uid: decodedToken.uid,
+        email: decodedToken.email || `${decodedToken.uid}@local.test`,
+        name: typeof decodedToken.name === 'string'
+          ? decodedToken.name
+          : decodedToken.email?.split('@')[0] || 'Usuario local',
+      });
+    }
     if (!dbUser) {
       return res.status(403).json({ error: 'No hay una cuenta registrada para este usuario. Contacta a tu colegio.' });
     }

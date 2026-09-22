@@ -1,5 +1,5 @@
 import { db } from './index.ts';
-import { users } from './schema.ts';
+import { schools, users } from './schema.ts';
 import { and, eq, ne, sql } from 'drizzle-orm';
 
 // Accounts are provisioned by a school admin (see POST /api/admin/users),
@@ -59,6 +59,39 @@ export async function updateUserState(uid: string, data: Partial<typeof users.$i
 export async function getUserState(uid: string) {
   const result = await db.select().from(users).where(eq(users.uid, uid));
   return result[0];
+}
+
+// Local-only bootstrap used after a fresh clone. Firebase still authenticates
+// the credentials; this only supplies the development profile/database row
+// that would normally already exist in Supabase in a deployed environment.
+export async function ensureLocalUser(params: { uid: string; email: string; name: string }) {
+  const existing = await getUserState(params.uid);
+  if (existing) return existing;
+
+  await db.insert(schools).values({
+    name: 'Colegio Ángeles de Jesús',
+    slug: 'angeles-de-jesus-local',
+    sections: ['A', 'B'],
+    status: 'active',
+  }).onConflictDoNothing({ target: schools.slug });
+
+  const [school] = await db.select().from(schools).where(eq(schools.slug, 'angeles-de-jesus-local'));
+  if (!school) throw new Error('No se pudo preparar el colegio local.');
+
+  const requestedRole = process.env.LOCAL_DEV_ROLE;
+  const role = requestedRole === 'admin' || requestedRole === 'teacher' || requestedRole === 'secretary'
+    ? requestedRole
+    : 'student';
+
+  await db.insert(users).values({
+    uid: params.uid,
+    email: params.email,
+    name: params.name,
+    schoolId: school.id,
+    role,
+  }).onConflictDoNothing({ target: users.uid });
+
+  return getUserState(params.uid);
 }
 
 // DNI is unique platform-wide, so this is the lookup used to detect a

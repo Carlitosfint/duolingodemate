@@ -11,6 +11,9 @@ import {
   MAX_CURRENCY,
   MAX_MISTAKES,
   MAX_PROGRESS,
+  MAX_SECTIONS,
+  cleanSections,
+  cleanStudentUpdates,
 } from './validation.ts';
 
 describe('slugify', () => {
@@ -149,5 +152,47 @@ describe('cleanMistakes', () => {
     for (const value of [{}, 'x', 5, null, undefined]) {
       expect(cleanMistakes(value)).toBeUndefined();
     }
+  });
+});
+
+describe('cleanStudentUpdates', () => {
+  const allowed = ['name', 'dni', 'grade', 'section', 'classroom', 'avatar', 'coins', 'tickets', 'progress'];
+
+  it('normalizes text and clamps game values', () => {
+    expect(cleanStudentUpdates({
+      name: '  Ana Pérez  ', dni: ' 12345678 ', grade: '4to', section: ' A ',
+      avatar: ' fox ', coins: -5, tickets: 999_999_999, progress: 101,
+    }, allowed)).toEqual({ updates: {
+      name: 'Ana Pérez', dni: '12345678', grade: '4to', section: 'A',
+      avatar: 'fox', coins: 0, tickets: MAX_CURRENCY, progress: MAX_PROGRESS,
+    } });
+  });
+
+  it('rejects malformed JSON bodies instead of throwing a server error', () => {
+    for (const body of [null, [], 'x', 3]) {
+      expect(cleanStudentUpdates(body, allowed)).toHaveProperty('error');
+    }
+  });
+
+  it('rejects invalid grades and non-numeric progress', () => {
+    expect(cleanStudentUpdates({ grade: '6to' }, allowed)).toEqual({ error: 'Grado inválido.' });
+    expect(cleanStudentUpdates({ progress: '100' }, allowed)).toHaveProperty('error');
+  });
+
+  it('never trusts the derived classroom field from the client', () => {
+    expect(cleanStudentUpdates({ classroom: 'Colegio ajeno' }, allowed)).toEqual({ updates: {} });
+  });
+});
+
+describe('cleanSections', () => {
+  it('trims, deduplicates and bounds school sections', () => {
+    const raw = [' A ', 'A', ...Array.from({ length: 100 }, (_, i) => `S${i}`)];
+    const result = cleanSections(raw)!;
+    expect(result[0]).toBe('A');
+    expect(result).toHaveLength(MAX_SECTIONS);
+  });
+
+  it('rejects non-arrays', () => {
+    expect(cleanSections('A')).toBeUndefined();
   });
 });
