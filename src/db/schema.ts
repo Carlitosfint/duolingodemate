@@ -89,6 +89,20 @@ export const users = pgTable('users', {
   // history with it and free a DNI that may still matter for a transfer,
   // so the row stays and the session is refused instead.
   active: boolean('active').default(true).notNull(),
+  // Every account starts with a password somebody else chose and saw — the
+  // temporary one on the admin's screen, the class list, the CSV export —
+  // so it has to be replaced before the account is really the person's.
+  // Set again whenever the school resets the password; cleared only by
+  // POST /api/user/password, once the new one is actually in place.
+  mustChangePassword: boolean('must_change_password').default(true).notNull(),
+  // The last sync batch applied from each of the student's devices
+  // ({ deviceId: seq }). Coins and tickets are synced as changes, and a
+  // change must not be applied twice: a batch sent as the tab closes never
+  // gets its answer back, so the device sends it again next time.
+  syncMarks: jsonb('sync_marks').$type<Record<string, number>>().default({}),
+  // Rewards granted at most once: coupon codes redeemed, and the daily
+  // challenges already claimed today ({ codes: [...], daily: { date, ids } }).
+  claims: jsonb('claims').default({}),
 }, (table) => ({
   // A DNI identifies one real person platform-wide, not per school — so
   // this is unique across every school, not scoped to schoolId. Partial:

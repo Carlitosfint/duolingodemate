@@ -60,6 +60,23 @@ export function clampInt(value: unknown, max: number): number | undefined {
   return Math.min(max, Math.max(0, Math.floor(value)));
 }
 
+// A change to a balance ("+30 coins since the last sync"), as opposed to the
+// balance itself. Bounded both ways; the column is clamped again on write.
+export function clampDelta(value: unknown, max: number): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  return Math.max(-max, Math.min(max, Math.trunc(value)));
+}
+
+// Which device sent a sync batch, and its number — so the server can tell
+// a batch it already applied (resent after a lost answer) from a new one.
+export function cleanSyncMark(body: any): { device: string; seq: number } | undefined {
+  const device = body?.deviceId;
+  const seq = body?.seq;
+  if (typeof device !== 'string' || !/^[a-z0-9-]{8,40}$/i.test(device)) return undefined;
+  if (typeof seq !== 'number' || !Number.isInteger(seq) || seq < 1 || seq > 2_147_483_647) return undefined;
+  return { device, seq };
+}
+
 export function plainObject(value: unknown): Record<string, any> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : undefined;
 }

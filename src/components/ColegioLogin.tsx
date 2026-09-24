@@ -4,15 +4,20 @@ import { Icon } from './CustomIcons';
 import { playClickSound, playErrorAlertSound, playRevealSound } from '../utils/audio';
 import { auth } from '../lib/firebase';
 
+// "No account with that email" and "wrong password" read the same on
+// purpose: telling them apart confirms which addresses exist — and student
+// addresses are just a year and four digits, easy to go through one by one.
+const WRONG_CREDENTIALS = 'Correo o contraseña incorrectos.';
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
-  'auth/invalid-email': 'Correo electrónico inválido.',
-  'auth/user-disabled': 'Esta cuenta ha sido deshabilitada.',
-  'auth/user-not-found': 'No existe una cuenta con ese correo.',
-  'auth/wrong-password': 'Usuario o contraseña incorrectos.',
-  'auth/invalid-credential': 'Usuario o contraseña incorrectos.',
-  'auth/missing-password': 'Ingresa una contraseña.',
-  'auth/too-many-requests': 'Demasiados intentos. Intenta de nuevo en unos minutos.',
-  'auth/network-request-failed': 'Error de conexión. Revisa tu internet.',
+  'auth/invalid-email': 'Ese correo no tiene un formato válido. Revísalo.',
+  'auth/user-disabled': 'Esta cuenta está dada de baja. Si crees que es un error, habla con secretaría.',
+  'auth/user-not-found': WRONG_CREDENTIALS,
+  'auth/wrong-password': WRONG_CREDENTIALS,
+  'auth/invalid-credential': WRONG_CREDENTIALS,
+  'auth/invalid-login-credentials': WRONG_CREDENTIALS,
+  'auth/missing-password': 'Escribe tu contraseña.',
+  'auth/too-many-requests': 'Demasiados intentos seguidos. Espera unos minutos y vuelve a intentarlo.',
+  'auth/network-request-failed': 'No hay conexión. Revisa tu internet e inténtalo de nuevo.',
 };
 
 const getAuthErrorMessage = (code?: string) =>
@@ -26,6 +31,12 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [toastVariant, setToastVariant] = useState<'error' | 'success'>('error');
+  // "¿Olvidaste tu contraseña?" used to email a reset link to whatever was
+  // typed — and said it had, even for a student, whose school address has
+  // no mailbox behind it. Students and staff recover access differently.
+  const [forgot, setForgot] = useState<null | 'choose' | 'student' | 'staff' | 'sent'>(null);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetSending, setResetSending] = useState(false);
 
   const circle1Ref = useRef<HTMLDivElement>(null);
   const circle2Ref = useRef<HTMLDivElement>(null);
@@ -113,17 +124,30 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
     }
   };
 
-  const handleForgotPassword = async () => {
-    if (!email.trim()) {
-      showMessage('Ingresa tu correo para recuperar la contraseña.');
+  const openForgot = () => {
+    playClickSound();
+    setResetEmail(email.trim());
+    setForgot('choose');
+  };
+
+  const sendStaffReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const target = resetEmail.trim();
+    if (!target) {
+      showMessage('Escribe tu correo.');
       return;
     }
-    playClickSound();
+    setResetSending(true);
     try {
-      await sendPasswordResetEmail(auth, email.trim());
-      showMessage('Te enviamos un correo para restablecer tu contraseña.', 'success');
+      await sendPasswordResetEmail(auth, target);
+      setForgot('sent');
     } catch (err: any) {
-      showMessage(getAuthErrorMessage(err?.code));
+      // A wrong or unknown address gets the same answer as a right one, for
+      // the same reason the login does.
+      if (err?.code === 'auth/user-not-found') setForgot('sent');
+      else showMessage(getAuthErrorMessage(err?.code));
+    } finally {
+      setResetSending(false);
     }
   };
 
@@ -242,42 +266,136 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
             <p className="text-slate-500 text-sm font-medium">Ingresa tus credenciales para continuar</p>
           </div>
 
+          {forgot ? (
+            <div className="space-y-5" aria-live="polite">
+              {forgot === 'choose' && (
+                <>
+                  <div>
+                    <h2 className="text-lg font-black text-slate-900">Recupera tu acceso</h2>
+                    <p className="text-sm text-slate-500 font-medium mt-1">¿Quién eres?</p>
+                  </div>
+                  <div className="grid gap-3">
+                    <button
+                      type="button"
+                      onClick={() => { playClickSound(); setForgot('student'); }}
+                      className="w-full flex items-center gap-3 p-4 rounded-2xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 text-left transition-colors"
+                    >
+                      <span className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0"><Icon name="user" size={20} /></span>
+                      <span className="font-black text-slate-800">Soy alumno</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { playClickSound(); setForgot('staff'); }}
+                      className="w-full flex items-center gap-3 p-4 rounded-2xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 text-left transition-colors"
+                    >
+                      <span className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0"><Icon name="teacher" size={20} /></span>
+                      <span className="font-black text-slate-800">Soy profesor o trabajo en el colegio</span>
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {forgot === 'student' && (
+                <div className="space-y-3">
+                  <h2 className="text-lg font-black text-slate-900">Pídesela a tu colegio</h2>
+                  <p className="text-sm text-slate-600 font-medium leading-relaxed">
+                    Tu correo del colegio no recibe mensajes, así que no podemos enviarte un enlace.
+                    Pídele a secretaría que te dé una contraseña nueva: lo hacen desde su panel en un minuto.
+                  </p>
+                  <p className="text-sm text-slate-600 font-medium leading-relaxed">
+                    Cuando entres con ella, la app te pedirá crear una que solo sepas tú.
+                  </p>
+                </div>
+              )}
+
+              {forgot === 'staff' && (
+                <form onSubmit={sendStaffReset} className="space-y-4">
+                  <div>
+                    <h2 className="text-lg font-black text-slate-900">Te enviamos un enlace</h2>
+                    <p className="text-sm text-slate-500 font-medium mt-1">Escribe el correo con el que entras a la plataforma.</p>
+                  </div>
+                  <input
+                    type="email"
+                    value={resetEmail}
+                    onChange={(e) => setResetEmail(e.target.value)}
+                    autoComplete="username"
+                    aria-label="Correo electrónico"
+                    className="input-light w-full rounded-xl py-3.5 px-4 focus:outline-none font-medium"
+                    placeholder="tucorreo@ejemplo.com"
+                    autoFocus
+                  />
+                  <button
+                    type="submit"
+                    disabled={resetSending}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl transition-colors disabled:opacity-70"
+                  >
+                    {resetSending ? 'Enviando…' : 'Enviar enlace'}
+                  </button>
+                </form>
+              )}
+
+              {forgot === 'sent' && (
+                <div className="space-y-3">
+                  <h2 className="text-lg font-black text-slate-900">Revisa tu correo</h2>
+                  <p className="text-sm text-slate-600 font-medium leading-relaxed">
+                    Si hay una cuenta con <span className="font-bold text-slate-800 break-all">{resetEmail.trim()}</span>, te llegará
+                    un enlace para crear una contraseña nueva. Puede tardar unos minutos; mira también en spam.
+                  </p>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => { playClickSound(); setForgot(null); }}
+                className="w-full py-3 rounded-xl border-2 border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-colors"
+              >
+                Volver a iniciar sesión
+              </button>
+            </div>
+          ) : (
           <form onSubmit={handleSubmit}>
             <div className="space-y-6">
               <div>
-                <label className="block text-[11px] text-slate-500 mb-2 tracking-widest uppercase font-bold">CORREO ELECTRÓNICO</label>
+                <label htmlFor="login-email" className="block text-[11px] text-slate-500 mb-2 tracking-widest uppercase font-bold">CORREO ELECTRÓNICO</label>
                 <div className="relative">
                   <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                     <Icon name="mail" size={20} />
                   </div>
                   <input
+                    id="login-email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="input-light w-full rounded-xl py-3.5 pl-12 pr-4 focus:outline-none font-medium"
                     placeholder="tucorreo@ejemplo.com"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    spellCheck={false}
                     required
                     autoFocus
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-[11px] text-slate-500 mb-2 tracking-widest uppercase font-bold">CONTRASEÑA</label>
+                <label htmlFor="login-password" className="block text-[11px] text-slate-500 mb-2 tracking-widest uppercase font-bold">CONTRASEÑA</label>
                 <div className="relative">
                   <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                     <Icon name="lock" size={20} />
                   </div>
                   <input
+                    id="login-password"
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="input-light w-full rounded-xl py-3.5 pl-12 pr-4 focus:outline-none font-medium"
+                    className="input-light w-full rounded-xl py-3.5 pl-12 pr-12 focus:outline-none font-medium"
                     placeholder="••••••••"
+                    autoComplete="current-password"
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
+                    aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                     className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-500 transition-colors focus:outline-none"
                   >
                     <Icon name={showPassword ? 'eye-off' : 'eye'} size={20} />
@@ -286,7 +404,7 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
                 <div className="text-right mt-2">
                   <button
                     type="button"
-                    onClick={handleForgotPassword}
+                    onClick={openForgot}
                     className="text-[11px] text-blue-500 hover:text-blue-700 font-bold underline underline-offset-2"
                   >
                     ¿Olvidaste tu contraseña?
@@ -304,10 +422,11 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
               </div>
             </div>
           </form>
+          )}
 
           <div className="mt-6 pt-6 border-t border-slate-100 text-center space-y-2">
             <p className="text-xs text-slate-400 font-medium">
-              ¿No tienes cuenta? Pídele a tu profesor o al colegio que te la cree.
+              ¿No tienes cuenta? Pídele a secretaría de tu colegio que te la cree.
             </p>
             <p className="text-xs text-slate-400 font-medium">
               ¿Tu colegio aún no está en la plataforma?{' '}

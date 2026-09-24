@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Button } from './UI';
 import { Icon } from './CustomIcons';
-import { auth } from '../lib/firebase.ts';
+import { authedFetch, SessionExpiredError } from '../lib/api';
 
 type Staff = {
   uid: string;
@@ -27,15 +27,6 @@ export const SchoolStaff: React.FC<{ currentUserUid?: string }> = ({ currentUser
   const [newPassword, setNewPassword] = useState<{ name: string; email: string; tempPassword: string } | null>(null);
   const [busyUid, setBusyUid] = useState<string | null>(null);
 
-  const authedFetch = async (url: string, options: RequestInit = {}) => {
-    const user = auth.currentUser;
-    if (!user) throw new Error('no-session');
-    const token = await user.getIdToken();
-    return fetch(url, {
-      ...options,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(options.headers || {}) },
-    });
-  };
 
   const load = async () => {
     try {
@@ -48,7 +39,7 @@ export const SchoolStaff: React.FC<{ currentUserUid?: string }> = ({ currentUser
         setError(body.error || 'No se pudo cargar el personal.');
       }
     } catch (e) {
-      setError(e instanceof Error && e.message === 'no-session'
+      setError(e instanceof SessionExpiredError
         ? 'Tu sesión expiró. Vuelve a iniciar sesión.'
         : 'Error de conexión al cargar el personal.');
     } finally {
@@ -105,7 +96,7 @@ export const SchoolStaff: React.FC<{ currentUserUid?: string }> = ({ currentUser
       if (action === 'reset') setNewPassword(body);
       else load();
     } catch (e) {
-      setError(e instanceof Error && e.message === 'no-session'
+      setError(e instanceof SessionExpiredError
         ? 'Tu sesión expiró. Vuelve a iniciar sesión.'
         : 'Error de conexión.');
     } finally {
@@ -155,7 +146,7 @@ export const SchoolStaff: React.FC<{ currentUserUid?: string }> = ({ currentUser
               Ocultar
             </button>
           </div>
-          <p className="text-[11px] text-emerald-700 mt-2">Anótala ahora, no se volverá a mostrar.</p>
+          <p className="text-[11px] text-emerald-700 mt-2">Anótala ahora, no se volverá a mostrar. Es temporal: al entrar tendrá que crear la suya.</p>
         </div>
       )}
 

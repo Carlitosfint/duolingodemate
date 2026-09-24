@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { AnimatePresence } from 'motion/react';
 import { Icon } from './CustomIcons';
-import { Avatar } from './Avatar';
 import { ToastTone } from './Toast';
 import { StudentDrawer } from './StudentDrawer';
 import {
@@ -176,7 +175,6 @@ export const StudentManager: React.FC<{
                     }`}
                   >
                     <span className="flex items-center gap-3 min-w-0">
-                      <Avatar name={s.avatar || 'fox'} size={40} />
                       <span className="min-w-0">
                         <span className="flex items-center gap-2">
                           <span className="font-black text-slate-800 truncate">{s.name || 'Sin nombre'}</span>

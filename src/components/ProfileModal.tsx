@@ -1,8 +1,40 @@
 import { Icon } from './CustomIcons';
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, Button } from './UI';
 import { Stats, Trophy } from '../types';
 import { Avatar } from './Avatar';
+import { ChangePasswordForm } from './ChangePassword';
+
+// Where anyone changes their own password. Until now nobody could: the
+// temporary password the school handed out was the password for good.
+const AccountSecurity: React.FC<{ email?: string; dni?: string | null; onChanged?: () => void }> = ({ email, dni, onChanged }) => {
+  const [open, setOpen] = useState(false);
+  if (!email) return null;
+  return (
+    <div className="bg-slate-50 border border-slate-200 p-5 rounded-3xl">
+      <h4 className="font-black text-slate-700 text-xs uppercase tracking-widest mb-3">Seguridad</h4>
+      {open ? (
+        <ChangePasswordForm
+          mode="voluntary"
+          email={email}
+          dni={dni}
+          onDone={() => { setOpen(false); onChanged?.(); }}
+          onCancel={() => setOpen(false)}
+        />
+      ) : (
+        <button
+          onClick={() => setOpen(true)}
+          className="w-full flex items-center gap-3 p-3 bg-white border border-slate-200 hover:border-blue-300 hover:shadow-sm rounded-2xl transition-all text-left"
+        >
+          <span className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+            <Icon name="key" size={18} />
+          </span>
+          <span className="font-black text-sm text-slate-800">Cambiar contraseña</span>
+        </button>
+      )}
+    </div>
+  );
+};
 
 interface ProfileModalProps {
   onClose?: () => void;
@@ -17,6 +49,8 @@ interface ProfileModalProps {
   onOpenCodice?: () => void;
   onOpenMistakes?: () => void;
   onGoToUsers?: () => void;
+  accountDni?: string | null;
+  onPasswordChanged?: () => void;
 }
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({
@@ -31,14 +65,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   onLogout,
   onOpenCodice,
   onOpenMistakes,
-  onGoToUsers
+  onGoToUsers,
+  accountDni,
+  onPasswordChanged,
 }) => {
   const isStaff = user.role === 'teacher' || user.role === 'admin' || user.role === 'secretary';
   const content = (
     <div className={`w-full ${isInline ? 'h-full bg-white border-0 rounded-none overflow-hidden flex flex-col' : 'max-w-4xl bg-white border-[6px] border-slate-200 rounded-[2.5rem] md:rounded-[3rem] p-6 md:p-10 my-8 shadow-2xl animate-pop'} text-slate-800 relative`}>
       <div className={`flex flex-col lg:flex-row justify-between items-center gap-4 mb-8 border-b-2 border-slate-100 pb-6 relative z-10 ${isInline ? 'p-4 lg:p-8 pt-6 lg:pt-10 pb-6 shrink-0 mb-0' : ''}`}>
         <div className="flex items-center gap-4 text-left max-w-full overflow-hidden">
-          <Avatar name={user.avatar} size={56} />
+          {!isStaff && <Avatar name={user.avatar} size={56} />}
           <div className="flex-1 min-w-0">
             <h3 className="text-2xl lg:text-3xl font-black text-slate-800 break-words line-clamp-2">
               Perfil de {user.name}
@@ -106,6 +142,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 </div>
               </div>
             </div>
+            <AccountSecurity email={user.email} dni={accountDni} onChanged={onPasswordChanged} />
           </div>
 
           <div className="lg:col-span-2 space-y-4">
@@ -147,6 +184,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 </div>
               </div>
             </div>
+
+            <AccountSecurity email={user.email} dni={accountDni} onChanged={onPasswordChanged} />
 
             <div className="bg-slate-50 border border-slate-200 p-5 rounded-3xl">
               <h4 className="font-black text-slate-700 text-xs uppercase tracking-widest mb-3">Métricas de Rendimiento</h4>

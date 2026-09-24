@@ -361,7 +361,7 @@ export const SchoolRegister: React.FC<{ onBackToLogin: () => void }> = ({ onBack
                   Contraseña temporal: <span className="font-mono font-bold">{result.tempPassword}</span>
                 </p>
                 <p className="text-xs text-emerald-600 mt-2">
-                  Anota esta contraseña ahora, no se volverá a mostrar. Puedes cambiarla luego desde "¿Olvidaste tu contraseña?" en el login.
+                  Anota esta contraseña ahora, no se volverá a mostrar. Es temporal: al entrar por primera vez crearás la tuya.
                 </p>
                 <button
                   type="button"

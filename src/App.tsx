@@ -3,7 +3,7 @@ import { motion, AnimatePresence, usePresence, useMotionValue, useMotionTemplate
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { auth } from './lib/firebase';
 import { ProblemData, CurrentProblem, AlbumState, Stats, ShopItem, MarketEvent, PetBuff, UnplacedPiece } from './types';
-import { roulettePrizes, themes, initialAlbums, PET_BUFFS, MARKET_EVENTS, SHOP_BANNERS, TROPHIES, PROMO_CODES_MAP } from './data';
+import { roulettePrizes, themes, initialAlbums, PET_BUFFS, MARKET_EVENTS, SHOP_BANNERS, TROPHIES } from './data';
 import {
   playClickSound,
   playCatchSound,
@@ -22,6 +22,10 @@ import {
   isMusicEnabled,
 } from './utils/audio';
 import { generateMathProblem } from './utils/math';
+import { isCorrectAnswer, keyValue, parseAnswer } from './lib/answers';
+import { isZero, nextBatch, onConfirmed, onSignIn, type SyncState } from './lib/balance';
+import { pickPrize, spinTo } from './lib/wheel';
+import { DAILY_CHALLENGES, challengeValue, schoolToday } from './lib/claims';
 import { useAnimatedNumber } from './utils/animated';
 import { Button, Card, BentoTile, FloatingMathBackground } from './components/UI';
 import { ConfettiOverlay } from './components/ConfettiOverlay';
@@ -34,6 +38,7 @@ const PetRaceMinigame = lazy(() => import('./components/PetRaceMinigame').then(m
 import { Toast, ToastTone } from './components/Toast';
 import { AudioToggle } from './components/AudioToggle';
 import { ColegioLogin } from './components/ColegioLogin';
+import { ChangePasswordForm } from './components/ChangePassword';
 
 import { ProgressMap } from './components/ProgressMap';
 import { InitialSetup } from './components/InitialSetup';
@@ -43,7 +48,8 @@ import { DictLabModal } from './components/DictLabModal';
 import { AlbumModal } from './components/AlbumModal';
 import { MistakesModal } from './components/MistakesModal';
 import { ProfileModal } from './components/ProfileModal';
-import { TeacherModeModal } from './components/TeacherModeModal';
+import { TeacherModeModal, type TutorProblem } from './components/TeacherModeModal';
+import { apiRequest } from './lib/api';
 import { WelcomeBonusModal } from './components/WelcomeBonusModal';
 import { DailyChallengesModal } from './components/DailyChallengesModal';
 import { ChestModal } from './components/ChestModal';
@@ -61,6 +67,46 @@ const Loading = () => (
     <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
   </div>
 );
+
+// One price per item: the quick-powers panel on the home screen charged 300
+// for a shield and 500 for Double while the shop charged 60 and 200.
+const SHIELD_PRICE = 60;
+const SHIELD_PACK_PRICE = 150; // 3 shields
+const DOUBLE_PRICE = 200;
+const SUPERNOVA_PRICE = 150;
+
+// This browser's id and sync batch counter. Kept across sign-outs, unlike
+// the rest of the game state: the counter has to keep going up, or the
+// server would take a new batch for one it has already applied.
+function nextDeviceSeq(): { device: string; seq: number } {
+  let saved: { id?: string; seq?: number } = {};
+  try { saved = JSON.parse(localStorage.getItem('fin_device') || '{}') || {}; } catch { /* start over */ }
+  const id = typeof saved.id === 'string' && saved.id.length >= 8
+    ? saved.id
+    : (globalThis.crypto?.randomUUID?.() ?? `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`);
+  const seq = (typeof saved.seq === 'number' ? saved.seq : 0) + 1;
+  try { localStorage.setItem('fin_device', JSON.stringify({ id, seq })); } catch { /* private mode */ }
+  return { device: id, seq };
+}
+
+// Everything the game caches on the device for whoever is signed in. Not
+// 'fin_device': its batch counter must keep increasing across accounts.
+const LOCAL_GAME_KEYS = [
+  'fin_user', 'fin_infinite_progress', 'fin_albums_state', 'fin_unplaced_pieces',
+  'fin_current_problem', 'fin_equiped_pet', 'fin_purchased_pets', 'fin_purchased_themes',
+  'fin_stats', 'fin_mistakes', 'fin_streak', 'fin_supernova', 'fin_shields',
+  'fin_double', 'fin_coins_spent', 'fin_skips_used', 'fin_tutorial_step', 'fin_theme',
+  'fin_sync_state',
+];
+
+function readBalanceSync(): SyncState | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem('fin_sync_state') || 'null');
+    return saved && typeof saved.uid === 'string' && saved.base ? saved : null;
+  } catch {
+    return null;
+  }
+}
 
 let globalLastClick = { x: 0, y: 0 };
 if (typeof window !== 'undefined') {
@@ -344,18 +390,13 @@ export default function App() {
     return u?.progress || 0;
   };
 
-  const handleInitialSetupComplete = async (data: { name: string; avatar: string }) => {
+  // Only students see the setup screen, and it only picks the avatar: name,
+  // role and grade are the school's enrollment data, fixed server-side.
+  const handleInitialSetupComplete = async (data: { avatar: string }) => {
     if (user) {
-      // role/grade are never set here — both are fixed server-side at enrollment.
-      const newUser = { ...user, ...data, setupCompleted: true };
-      setUser(newUser);
-      // The welcome bonus and tutorial ("resuelve desafíos", "cofres",
-      // "monedas y álbumes") are about the student game loop — staff
-      // skip straight to a completed setup.
-      if (user.role !== 'teacher' && user.role !== 'admin' && user.role !== 'secretary') {
-        setShowWelcomeBonus(true);
-        setTutorialStep(1);
-      }
+      setUser({ ...user, avatar: data.avatar, setupCompleted: true });
+      setShowWelcomeBonus(true);
+      setTutorialStep(1);
     }
   };
 
@@ -413,11 +454,26 @@ export default function App() {
   }, [authChecked, authUser, showLoginScreen]);
 
   const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
+  // Set when the account still has the temporary password the school gave
+  // it. While set, the only thing on screen is the form to replace it.
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+  // Only for the password rules ("no uses tu DNI"). Kept in memory, never in
+  // the profile cached in localStorage: school computers are shared.
+  const [accountDni, setAccountDni] = useState<string | null>(null);
+  const [schoolName, setSchoolName] = useState<string | null>(null);
   // Whoever runs the platform has no school, so /api/user rejects them. That
   // rejection is the cue to check whether this is an operator instead.
   const [platformAdmin, setPlatformAdmin] = useState<{ email?: string } | null>(null);
   // Read inside the hydration effect, which only depends on authUser.
   const userRef = useRef(user);
+  // Where this device stands with the server on coins and tickets (see
+  // src/lib/balance.ts). Persisted, so a batch sent as the tab closed is
+  // resent next time instead of being lost or counted twice.
+  const balanceSync = useRef<SyncState | null>(readBalanceSync());
+  const saveBalanceSync = (state: SyncState) => {
+    balanceSync.current = state;
+    try { localStorage.setItem('fin_sync_state', JSON.stringify(state)); } catch { /* private mode */ }
+  };
   userRef.current = user;
 
   // Loads the real account — name, role, school — from the backend on every
@@ -467,24 +523,51 @@ export default function App() {
         const dbUser = await res.json();
         if (cancelled) return;
 
+        // The game state cached on this device belongs to whoever used it
+        // last. If that was someone else — a shared school computer where a
+        // session ended without "Cerrar sesión" — none of it may be merged
+        // into this account: start clean, as signing out would have.
+        const cachedEmail = userRef.current?.email?.toLowerCase();
+        if (cachedEmail && dbUser.email && cachedEmail !== String(dbUser.email).toLowerCase()) {
+          LOCAL_GAME_KEYS.forEach(key => localStorage.removeItem(key));
+          window.location.reload();
+          return;
+        }
+        setMustChangePassword(dbUser.mustChangePassword === true);
+        setAccountDni(dbUser.dni ?? null);
+        setSchoolName(dbUser.schoolName ?? null);
+        setClaimedChallenges(dbUser.claims?.daily?.date === schoolToday() ? dbUser.claims.daily.ids ?? [] : []);
+
         const mergeByKey = (a: Record<string, number> = {}, b: Record<string, number> = {}) => {
           const out: Record<string, number> = { ...a };
           for (const [k, v] of Object.entries(b)) out[k] = Math.max(Number(out[k]) || 0, Number(v) || 0);
           return out;
         };
 
+        const cached = userRef.current;
+        const signedIn = onSignIn(
+          { coins: dbUser.coins ?? 0, tickets: dbUser.tickets ?? 0 },
+          cached ? { coins: cached.coins, tickets: cached.tickets } : null,
+          balanceSync.current,
+          authUser.uid,
+        );
+        saveBalanceSync(signedIn.state);
+
         setUser(prev => ({
           // Identity and enrollment always come from the server — they're the
           // school's data, not the device's.
-          name: prev?.name || dbUser.name || authUser.displayName || authUser.email?.split('@')[0] || 'Estudiante',
+          // The server's name first: this used to prefer the one cached on
+          // the device, so a correction made by the secretary never reached
+          // the student — and the stale name was synced back over it.
+          name: dbUser.name || prev?.name || authUser.displayName || authUser.email?.split('@')[0] || 'Estudiante',
           email: dbUser.email || authUser.email || '',
           avatar: prev?.avatar || dbUser.avatar || 'fox',
           role: dbUser.role || 'student',
           grade: dbUser.grade || undefined,
           classroom: dbUser.classroom || '',
           setupCompleted: dbUser.setupCompleted || prev?.setupCompleted || false,
-          coins: Math.max(dbUser.coins ?? 0, prev?.coins ?? 0),
-          tickets: Math.max(dbUser.tickets ?? 0, prev?.tickets ?? 0),
+          coins: signedIn.local.coins,
+          tickets: signedIn.local.tickets,
           progress: Math.max(dbUser.progress ?? 0, prev?.progress ?? 0),
           courseProgress: mergeByKey(prev?.courseProgress, dbUser.courseProgress),
         }));
@@ -679,7 +762,8 @@ export default function App() {
   const [lastPrize, setLastPrize] = useState<string | null>(null);
 
   // Active feedback alerts
-  const [answerState, setAnswerState] = useState<{ type: 'idle' | 'correct' | 'wrong'; text: React.ReactNode }>({ type: 'idle', text: null });
+  // 'hint': the answer couldn't be read as a number, so nothing was graded.
+  const [answerState, setAnswerState] = useState<{ type: 'idle' | 'hint' | 'correct' | 'wrong'; text: React.ReactNode }>({ type: 'idle', text: null });
   const [streak, setStreak] = useState(() => parseInt(localStorage.getItem('fin_streak') || '0', 10));
   const [isSupernova, setIsSupernova] = useState(() => localStorage.getItem('fin_supernova') === 'true');
   const [showConfetti, setShowConfetti] = useState(false);
@@ -716,32 +800,79 @@ export default function App() {
   const syncStateRef = useRef({ user, stats, albumsState, infiniteProgress, mistakesList, authUser });
   syncStateRef.current = { user, stats, albumsState, infiniteProgress, mistakesList, authUser };
 
-  const syncToServer = useCallback(async () => {
-    const snapshot = syncStateRef.current;
-    if (!snapshot.user || !snapshot.authUser) return;
-    try {
+  // One sync at a time: two in flight would both diff against the same
+  // confirmed balance. A request made meanwhile runs right after.
+  const syncInFlight = useRef<Promise<void> | null>(null);
+  const syncAgain = useRef(false);
+
+  const syncToServer = useCallback((): Promise<void> => {
+    if (syncInFlight.current) {
+      syncAgain.current = true;
+      return syncInFlight.current;
+    }
+    const run = async () => {
+      const snapshot = syncStateRef.current;
+      const state = balanceSync.current;
+      // Nothing to diff against until sign-in has loaded the server's
+      // balance; the first sync after that carries everything.
+      if (!snapshot.user || !snapshot.authUser || !state || state.uid !== snapshot.authUser.uid) return;
+
+      let working = state;
+      const batch = nextBatch({ coins: snapshot.user.coins, tickets: snapshot.user.tickets }, state);
+      if (batch.seq === null && !isZero(batch.delta)) {
+        // Recorded before it's sent, so a lost answer means a resend of
+        // this exact batch, never a second one.
+        const { device, seq } = nextDeviceSeq();
+        working = { ...state, pending: { seq, device, delta: batch.delta } };
+        saveBalanceSync(working);
+      }
+      const pending = working.pending;
+
+      const payload = JSON.stringify({
+        ...(pending
+          ? { deviceId: pending.device, seq: pending.seq, coinsDelta: pending.delta.coins, ticketsDelta: pending.delta.tickets }
+          : {}),
+        progress: snapshot.user.progress,
+        courseProgress: snapshot.user.courseProgress || {},
+        infiniteProgress: snapshot.infiniteProgress,
+        stats: snapshot.stats,
+        albums: snapshot.albumsState,
+        mistakes: snapshot.mistakesList,
+        avatar: snapshot.user.avatar,
+        setupCompleted: snapshot.user.setupCompleted,
+      });
       const token = await snapshot.authUser.getIdToken();
-      await fetch('/api/user/sync', {
+      const res = await fetch('/api/user/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          coins: snapshot.user.coins,
-          tickets: snapshot.user.tickets,
-          progress: snapshot.user.progress,
-          courseProgress: snapshot.user.courseProgress || {},
-          infiniteProgress: snapshot.infiniteProgress,
-          stats: snapshot.stats,
-          albums: snapshot.albumsState,
-          mistakes: snapshot.mistakesList,
-          avatar: snapshot.user.avatar,
-          name: snapshot.user.name,
-          setupCompleted: snapshot.user.setupCompleted,
-        }),
+        body: payload,
+        // Lets the last sync survive the tab closing; browsers cap such
+        // requests at 64 KB, and a long mistakes list can exceed that.
+        keepalive: payload.length < 60_000,
       });
-    } catch {
-      // Offline or the server is down: the local copy is still authoritative
-      // and the merge on next sign-in keeps whichever side is further along.
-    }
+      if (!res.ok) return;
+      const row = await res.json();
+      const server = { coins: row.coins ?? 0, tickets: row.tickets ?? 0 };
+      saveBalanceSync({ uid: working.uid, base: server, pending: null });
+      setUser(prev => {
+        if (!prev) return prev;
+        const { local } = onConfirmed(server, { coins: prev.coins, tickets: prev.tickets }, working);
+        return local.coins === prev.coins && local.tickets === prev.tickets ? prev : { ...prev, ...local };
+      });
+    };
+    const done = run()
+      // Offline or the server is down: the pending batch stays recorded and
+      // goes out with the next sync.
+      .catch(() => {})
+      .finally(() => {
+        syncInFlight.current = null;
+        if (syncAgain.current) {
+          syncAgain.current = false;
+          void syncToServer();
+        }
+      });
+    syncInFlight.current = done;
+    return done;
   }, []);
 
   useEffect(() => {
@@ -863,32 +994,36 @@ export default function App() {
   }, [activeTheme, user]);
 
   // Secure Server proxy call to Gemini
-  const callGemini = async (prompt: string): Promise<string> => {
+  // Errors come back as text for the tutor's bubble: the student is in the
+  // middle of an exercise, and a toast about a failed request is less
+  // useful there than the tutor saying it can't answer right now.
+  const askTutor = async (problem: TutorProblem, question: string): Promise<string> => {
     try {
-      const token = await auth.currentUser?.getIdToken();
-      const response = await fetch('/api/gemini', {
+      const body = await apiRequest<{ text: string }>('/api/tutor', 'El tutor no pudo responder. Intenta de nuevo en un momento.', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ problem, question }),
       });
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const data = await response.json();
-      return data.text || "Lo siento, mi circuito de IA falló. Intenta de nuevo.";
+      return body.text;
     } catch (error) {
-      console.error("Error calling Gemini API:", error);
-      return "La IA está descansando en este momento por mucha carga. Intenta más tarde. ✨";
+      return error instanceof Error ? error.message : 'El tutor no pudo responder. Intenta de nuevo en un momento.';
     }
   };
+
+  const tutorProblem: TutorProblem | null = currentProblem?.data
+    ? {
+        intro: currentProblem.data.intro,
+        topic: currentProblem.data.type,
+        answer: String(currentProblem.data.expectedAnswer ?? ''),
+        explanation: currentProblem.data.explanation,
+      }
+    : null;
 
 
   // Pick Welcome box
   const handleWelcomePick = (idx: number) => {
     if (!user) return;
     playEpicRevealSound();
-    let bonus = { coins: 150, tickets: 15, name: "Bono Inicial Ángeles" };
+    let bonus = { coins: 150, tickets: 15, name: "Bono de Bienvenida" };
     if (idx === 1) bonus = { coins: 0, tickets: 0, name: "Suscripción Inversor" };
     if (idx === 2) bonus = { coins: 250, tickets: 10, name: "Cofre de Bienvenida" };
     
@@ -900,18 +1035,23 @@ export default function App() {
     } : null);
   };
 
-  // Promo code validation
-  const claimPromoCode = () => {
+  // Coupon codes are checked and paid by the server, once per student (see
+  // src/lib/claims.ts). The new balance arrives with the sync that follows.
+  const claimPromoCode = async () => {
     playClickSound();
-    const codeClean = promoCode.trim();
-    if (PROMO_CODES_MAP[codeClean] !== undefined) {
-      const bonusCoins = PROMO_CODES_MAP[codeClean] * 10;
-      setUser(prev => prev ? { ...prev, coins: prev.coins + bonusCoins } : null);
-      setPromoFeedback(<span className="flex items-center gap-1"><Icon name="check" className="text-green-500" size={18} /> ¡Código Válido! Recibes +{bonusCoins} <Icon name="coins" size={18} /></span>);
+    const code = promoCode.trim();
+    if (!code) return;
+    try {
+      const body = await apiRequest<{ reward: { coins: number } }>('/api/user/claim', 'No se pudo canjear el código.', {
+        method: 'POST',
+        body: JSON.stringify({ kind: 'code', code }),
+      });
+      setPromoFeedback(<span className="flex items-center gap-1"><Icon name="check" className="text-green-500" size={18} /> ¡Código válido! Recibes +{body.reward.coins} <Icon name="coins" size={18} /></span>);
       playRainbowSound();
       setPromoCode("");
-    } else {
-      setPromoFeedback(<span className="flex items-center gap-1"><Icon name="x" className="text-red-500" size={18} /> Código Inválido o ya canjeado.</span>);
+      void syncToServer();
+    } catch (error) {
+      setPromoFeedback(<span className="flex items-center gap-1"><Icon name="x" className="text-red-500" size={18} /> {error instanceof Error ? error.message : 'No se pudo canjear el código.'}</span>);
       playErrorAlertSound();
     }
     setTimeout(() => setPromoFeedback(""), 4000);
@@ -989,7 +1129,6 @@ export default function App() {
     if (nextStreak % 5 === 0) {
       extraTickets = nextStreak + ((equipedPet || PET_BUFFS[0]).buffType === 'combo_extra' ? (equipedPet || PET_BUFFS[0]).value : 0);
       ticketsEarned += extraTickets;
-      setIsSupernova(true);
       playFrenzySound();
       setStats(prev => ({ ...prev, supernovas: prev.supernovas + 1 }));
     }
@@ -1040,20 +1179,23 @@ export default function App() {
         playErrorAlertSound();
         return;
       }
-    } else if (!valStr || isNaN(parseFloat(valStr))) {
+    } else if (parseAnswer(valStr).length === 0) {
+      // Not a number we can read: it isn't graded, the field just shakes
+      // and says what it expects, instead of being marked wrong.
       setIsShaking(true);
       setTimeout(() => setIsShaking(false), 400); // match animation duration
       playErrorAlertSound();
+      setAnswerState({ type: 'hint', text: 'Escribe solo el número. Puedes usar coma decimal o una fracción, como 7/2.' });
       return;
     }
 
-    const userVal = parseFloat(valStr);
-    const correctVal = parseFloat(currentProblem.data.expectedAnswer);
+    const correctVal = keyValue(currentProblem.data.expectedAnswer) ?? 0;
 
-    // Accept small rounding tolerance for numeric answers; exact match for truth tables
+    // Numbers are compared as numbers however they're written (see
+    // src/lib/answers.ts); truth tables are compared letter by letter.
     const isCorrect = isTruthTable
       ? valStr.toUpperCase() === String(currentProblem.data.expectedAnswer).toUpperCase()
-      : Math.abs(userVal - correctVal) <= 0.05;
+      : isCorrectAnswer(valStr, currentProblem.data.expectedAnswer);
 
     if (isCorrect) {
       setShowConfetti(true);
@@ -1079,13 +1221,15 @@ export default function App() {
         ticketsEarned *= 2;
       }
 
-      // Check supernova status
+      // Supernova: every 5th hit in a row, or the next hit after buying
+      // "Rally Alcista". The purchase used to set a flag nothing read — the
+      // student paid 150 coins for no effect at all.
       const nextStreak = streak + 1;
       let extraTickets = 0;
-      if (nextStreak % 5 === 0) {
-        extraTickets = nextStreak + ((equipedPet || PET_BUFFS[0]).buffType === 'combo_extra' ? (equipedPet || PET_BUFFS[0]).value : 0);
+      if (nextStreak % 5 === 0 || isSupernova) {
+        extraTickets = Math.max(nextStreak, 5) + ((equipedPet || PET_BUFFS[0]).buffType === 'combo_extra' ? (equipedPet || PET_BUFFS[0]).value : 0);
         ticketsEarned += extraTickets;
-        setIsSupernova(true);
+        if (isSupernova) setIsSupernova(false);
         playFrenzySound();
         setStats(prev => ({ ...prev, supernovas: prev.supernovas + 1 }));
       }
@@ -1174,7 +1318,6 @@ export default function App() {
         playShieldSound();
       } else {
         setStreak(0);
-        setIsSupernova(false);
         setAnswerState({
           type: 'wrong',
           text: <span className="flex items-center gap-1 flex-wrap justify-center"><Icon name="x" size={18} /> Incorrecto. Lo guardamos en tus Errores con la explicación para que lo repases.</span>
@@ -1333,25 +1476,12 @@ export default function App() {
 
     startTickingSound(4000);
 
-    const randVal = Math.random() * 100;
-    let accumulated = 0;
-    let prize: any = roulettePrizes[0];
-
-    for (let p of roulettePrizes) {
-      accumulated += p.prob;
-      if (randVal <= accumulated) {
-        prize = p;
-        break;
-      }
-    }
-
-    const prizeIndex = roulettePrizes.findIndex(p => p.id === prize.id);
-    const targetSliceAngle = (prize.prob / 100) * 360;
-    const targetAngle = 360 - (prizeIndex * (360 / roulettePrizes.length)) - (targetSliceAngle / 2);
-    const spins = 5 * 360;
-    const finalRot = wheelRotation + spins + targetAngle;
-
-    setWheelRotation(finalRot);
+    // Aimed at the slice as it's drawn (each as wide as its probability),
+    // from wherever the wheel is now — see src/lib/wheel.ts. It used to
+    // stop on a different prize from the one awarded.
+    const prizeIndex = pickPrize(roulettePrizes, Math.random());
+    const prize: any = roulettePrizes[prizeIndex];
+    setWheelRotation(spinTo(wheelRotation, roulettePrizes, prizeIndex, Math.random()));
 
     setTimeout(() => {
       setSpinning(false);
@@ -1439,38 +1569,48 @@ export default function App() {
     // Must happen before signOut (the token goes away) and before the wipe
     // below, or the student's session is lost instead of saved.
     await syncToServer();
+    while (syncInFlight.current) await syncInFlight.current;
     try {
       await signOut(auth);
     } catch (e) {
       console.error('Error al cerrar sesión:', e);
     }
-    [
-      'fin_user', 'fin_infinite_progress', 'fin_albums_state', 'fin_unplaced_pieces',
-      'fin_current_problem', 'fin_equiped_pet', 'fin_purchased_pets', 'fin_purchased_themes',
-      'fin_stats', 'fin_mistakes', 'fin_streak', 'fin_supernova', 'fin_shields',
-      'fin_double', 'fin_coins_spent', 'fin_skips_used', 'fin_tutorial_step', 'fin_theme',
-    ].forEach(key => localStorage.removeItem(key));
+    LOCAL_GAME_KEYS.forEach(key => localStorage.removeItem(key));
     window.location.reload();
   };
 
-  const claimChallenge = (challenge: any) => {
-    if (claimedChallenges.includes(challenge.id)) return;
-    setClaimedChallenges([...claimedChallenges, challenge.id]);
-    if (challenge.reward.type === 'coins') {
-      setUser(prev => prev ? { ...prev, coins: prev.coins + challenge.reward.amount } : null);
-    } else {
-      setUser(prev => prev ? { ...prev, tickets: prev.tickets + challenge.reward.amount } : null);
-    }
+  // Claimed on the server, once a day each. They used to be settled in
+  // memory only, so reloading the page made every challenge claimable again.
+  const claimingChallenge = useRef(false);
+  const claimChallenge = async (challenge: any) => {
+    if (claimedChallenges.includes(challenge.id) || claimingChallenge.current) return;
+    claimingChallenge.current = true;
     playClickSound();
+    try {
+      // The server checks the challenge against the balance and stats it
+      // has, so it has to have the latest ones first.
+      await syncToServer();
+      while (syncInFlight.current) await syncInFlight.current;
+      const body = await apiRequest<{ user: { claims?: { daily?: { ids?: number[] } } } }>(
+        '/api/user/claim',
+        'No se pudo reclamar el premio.',
+        { method: 'POST', body: JSON.stringify({ kind: 'daily', id: challenge.id }) },
+      );
+      setClaimedChallenges(body.user.claims?.daily?.ids ?? [...claimedChallenges, challenge.id]);
+      showToast(`¡Premio reclamado! +${challenge.reward.amount} ${challenge.reward.type === 'coins' ? 'monedas' : 'tickets'}`, 'info');
+      void syncToServer();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'No se pudo reclamar el premio.', 'warn');
+    } finally {
+      claimingChallenge.current = false;
+    }
   };
 
-  const dailyChallenges = [
-    { id: 1, icon: '⚡', title: 'Gana 50 Monedas', target: 50, current: Math.min(coins, 50), reward: { type: 'tickets', amount: 5 }, color: 'bg-yellow-400' },
-    { id: 2, icon: '🎯', title: 'Alcanza Nivel 10', target: 10, current: Math.min(progress, 10), reward: { type: 'coins', amount: 200 }, color: 'bg-green-400' },
-    { id: 3, icon: '💎', title: 'Acumula 10 Tickets', target: 10, current: Math.min(tickets, 10), reward: { type: 'coins', amount: 500 }, color: 'bg-purple-400' },
-    { id: 4, icon: '🏆', title: 'Completa 20 Retos', target: 20, current: Math.min(progress, 20), reward: { type: 'tickets', amount: 10 }, color: 'bg-rose-400' },
-    { id: 5, icon: '🔥', title: 'Racha de 5', target: 5, current: Math.min(streak, 5), reward: { type: 'coins', amount: 300 }, color: 'bg-amber-400' },
-  ];
+  const challengeInputs = { coins, tickets, progress: user?.progress, courseProgress: user?.courseProgress, stats };
+  const dailyChallenges = DAILY_CHALLENGES.map((c) => ({
+    ...c,
+    current: Math.min(challengeValue(c.metric, challengeInputs), c.target),
+  }));
 
   if (!authChecked || showLoginScreen === null) {
     return (
@@ -1506,6 +1646,21 @@ export default function App() {
     );
   }
 
+  if (mustChangePassword && authUser?.email) {
+    return (
+      <ChangePasswordForm
+        mode="forced"
+        email={authUser.email}
+        dni={accountDni}
+        onDone={() => {
+          setMustChangePassword(false);
+          showToast('Listo: ya tienes tu propia contraseña.', 'info');
+        }}
+        onCancel={handleLogout}
+      />
+    );
+  }
+
   if (!user) {
     return (
       <div className="min-h-screen w-full flex items-center justify-center bg-slate-50">
@@ -1517,8 +1672,10 @@ export default function App() {
   return (
     <>
       <AnimatePresence>
-        {user && !user.setupCompleted && (
-          <InitialSetup initialName={user.name} onComplete={handleInitialSetupComplete} />
+        {/* Choosing an animal avatar is part of the student game; a teacher
+            signing in for the first time shouldn't be greeted with it. */}
+        {user && !user.setupCompleted && !isStaff && (
+          <InitialSetup name={user.name} onComplete={handleInitialSetupComplete} />
         )}
       </AnimatePresence>
       <div className={`min-h-screen w-full transition-all duration-500 p-4 pb-16 font-sans select-none relative overflow-x-hidden ${currentThemeStyle.bgClass}`}>
@@ -1901,10 +2058,10 @@ export default function App() {
                             <button 
                               className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
                               onClick={() => {
-                                 if (user.coins >= 60) { setUser(prev => prev ? { ...prev, coins: prev.coins - 60 } : null); setShieldCount(s => s + 1); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
+                                 if (user.coins >= SHIELD_PRICE) { setUser(prev => prev ? { ...prev, coins: prev.coins - SHIELD_PRICE } : null); setShieldCount(s => s + 1); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
                               }}
                             >
-                               60 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
+                               {SHIELD_PRICE} <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
                             </button>
                          </div>
                       </div>
@@ -1925,10 +2082,10 @@ export default function App() {
                             <button 
                               className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
                               onClick={() => {
-                                 if (user.coins >= 150) { setUser(prev => prev ? { ...prev, coins: prev.coins - 150 } : null); setShieldCount(s => s + 3); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
+                                 if (user.coins >= SHIELD_PACK_PRICE) { setUser(prev => prev ? { ...prev, coins: prev.coins - SHIELD_PACK_PRICE } : null); setShieldCount(s => s + 3); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
                               }}
                             >
-                               150 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
+                               {SHIELD_PACK_PRICE} <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
                             </button>
                          </div>
                       </div>
@@ -1941,7 +2098,7 @@ export default function App() {
                             </div>
                             <div className="flex-1 min-w-0">
                                <h4 className="font-black text-sm sm:text-base leading-tight truncate text-fuchsia-800">Rally Alcista</h4>
-                               <p className="text-[11px] sm:text-xs font-bold leading-snug mt-1 text-fuchsia-700/80">Activa la Supernova al instante.</p>
+                               <p className="text-[11px] sm:text-xs font-bold leading-snug mt-1 text-fuchsia-700/80">Tu próximo acierto activa la Supernova: tickets extra.</p>
                             </div>
                          </div>
                          <div className="flex items-center justify-between gap-2 pt-3 mt-auto flex-wrap">
@@ -1950,23 +2107,23 @@ export default function App() {
                               className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto disabled:opacity-50" 
                               disabled={isSupernova}
                               onClick={() => {
-                                 if (user.coins >= 150) { setUser(prev => prev ? { ...prev, coins: prev.coins - 150 } : null); setIsSupernova(true); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
+                                 if (user.coins >= SUPERNOVA_PRICE) { setUser(prev => prev ? { ...prev, coins: prev.coins - SUPERNOVA_PRICE } : null); setIsSupernova(true); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
                               }}
                             >
-                               150 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
+                               {SUPERNOVA_PRICE} <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
                             </button>
                          </div>
                       </div>
 
-                      {/* Dividendos x3 */}
+                      {/* Dividendos x2 */}
                       <div className="p-4 sm:p-5 rounded-3xl border-2 border-blue-100 bg-blue-50 shadow-sm flex flex-col justify-between transition-all group overflow-hidden">
                          <div className="flex items-start gap-3 sm:gap-3.5 mb-3">
                             <div className="w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform filter drop-shadow-sm">
                               <span className="text-4xl text-rose-500">🎟️</span>
                             </div>
                             <div className="flex-1 min-w-0">
-                               <h4 className="font-black text-sm sm:text-base leading-tight truncate text-blue-800">Dividendos x3</h4>
-                               <p className="text-[11px] sm:text-xs font-bold leading-snug mt-1 text-blue-700/80">Triple de tickets (3 aciertos).</p>
+                               <h4 className="font-black text-sm sm:text-base leading-tight truncate text-blue-800">Dividendos x2</h4>
+                               <p className="text-[11px] sm:text-xs font-bold leading-snug mt-1 text-blue-700/80">Doble de tickets en tu próximo acierto.</p>
                             </div>
                          </div>
                          <div className="flex items-center justify-between gap-2 pt-3 mt-auto flex-wrap">
@@ -1974,10 +2131,10 @@ export default function App() {
                             <button 
                               className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
                               onClick={() => {
-                                 if (user.coins >= 200 && !activeDoubleDividends) { setUser(prev => prev ? { ...prev, coins: prev.coins - 200 } : null); setActiveDoubleDividends(true); playClickSound(); } else if (activeDoubleDividends) { showToast("Ya tienes este poder activo.", "info"); } else { showToast("No tienes suficientes monedas."); }
+                                 if (user.coins >= DOUBLE_PRICE && !activeDoubleDividends) { setUser(prev => prev ? { ...prev, coins: prev.coins - DOUBLE_PRICE } : null); setActiveDoubleDividends(true); playClickSound(); } else if (activeDoubleDividends) { showToast("Ya tienes este poder activo.", "info"); } else { showToast("No tienes suficientes monedas."); }
                               }}
                             >
-                               200 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
+                               {DOUBLE_PRICE} <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
                             </button>
                          </div>
                       </div>
@@ -2158,6 +2315,8 @@ export default function App() {
                     onReplayTutorial={isStaff ? undefined : () => { playClickSound(); setTutorialStep(1); }}
                     onLogout={handleLogout}
                     onGoToUsers={isStaff ? () => { playClickSound(); setViewMode('teacher_dash'); } : undefined}
+                    accountDni={accountDni}
+                    onPasswordChanged={() => showToast('Contraseña cambiada.', 'info')}
                   />
                 </div>
               </TabTransition>)}
@@ -2171,13 +2330,7 @@ export default function App() {
 
               {viewMode === 'teacher' && (<TabTransition type="swipe" key="teacher">
                 <div key="teacher" className="h-full relative bg-white/50 overflow-hidden">
-                  <TeacherModeModal 
-                    isInline={true}
-                    currentProblemIntro={currentProblem.data.intro}
-                    currentProblemAnswer={currentProblem.data.expectedAnswer}
-                    currentProblemExplanation={currentProblem.data.explanation}
-                    callGemini={callGemini}
-                  />
+                  <TeacherModeModal isInline={true} problem={tutorProblem} askTutor={askTutor} />
                 </div>
               </TabTransition>)}
               </AnimatePresence>
@@ -2282,7 +2435,7 @@ export default function App() {
                               <p className={`text-[9px] font-bold ${currentThemeStyle.textSecondary}`}>Activos: {shieldCount}</p>
                            </div>
                         </div>
-                        <Button onClick={() => { if (user.coins >= 300) { setUser(prev => prev ? { ...prev, coins: prev.coins - 300 } : null); setShieldCount(s => s + 1); playClickSound(); } }} color="green" className="px-3 py-1.5 text-[10px] shrink-0 shadow-sm uppercase tracking-wider"><div className="flex items-center justify-center gap-1"><Icon name="coins" size={18} /> 300</div></Button>
+                        <Button onClick={() => { if (user.coins >= SHIELD_PRICE) { setUser(prev => prev ? { ...prev, coins: prev.coins - SHIELD_PRICE } : null); setShieldCount(s => s + 1); playClickSound(); } else { showToast("No tienes suficientes monedas."); } }} color="green" className="px-3 py-1.5 text-[10px] shrink-0 shadow-sm uppercase tracking-wider"><div className="flex items-center justify-center gap-1"><Icon name="coins" size={18} /> {SHIELD_PRICE}</div></Button>
                      </div>
                      <div className="p-3 bg-slate-500/5 border border-slate-500/15 rounded-2xl flex items-center justify-between gap-2 hover:bg-slate-500/10 transition-all duration-200">
                         <div className="flex items-center gap-3">
@@ -2292,7 +2445,7 @@ export default function App() {
                               <p className={`text-[9px] font-bold ${currentThemeStyle.textSecondary}`}>{activeDoubleDividends ? 'Activo' : 'Inactivo'}</p>
                            </div>
                         </div>
-                        <Button onClick={() => { if (user.coins >= 500 && !activeDoubleDividends) { setUser(prev => prev ? { ...prev, coins: prev.coins - 500 } : null); setActiveDoubleDividends(true); playClickSound(); } }} color="purple" className="px-3 py-1.5 text-[10px] shrink-0 shadow-sm uppercase tracking-wider"><div className="flex items-center justify-center gap-1"><Icon name="coins" size={18} /> 500</div></Button>
+                        <Button onClick={() => { if (user.coins >= DOUBLE_PRICE && !activeDoubleDividends) { setUser(prev => prev ? { ...prev, coins: prev.coins - DOUBLE_PRICE } : null); setActiveDoubleDividends(true); playClickSound(); } else if (activeDoubleDividends) { showToast("Ya tienes este poder activo.", "info"); } else { showToast("No tienes suficientes monedas."); } }} color="purple" className="px-3 py-1.5 text-[10px] shrink-0 shadow-sm uppercase tracking-wider"><div className="flex items-center justify-center gap-1"><Icon name="coins" size={18} /> {DOUBLE_PRICE}</div></Button>
                      </div>
                   </div>
                </div>
@@ -2360,6 +2513,17 @@ export default function App() {
            </button>
            
            <div className="w-px h-6 bg-slate-200 hidden sm:block mx-1"></div>
+
+           {/* The tutorial promises "el Asistente AI te guiará paso a paso",
+               but nothing opened it: the modal existed with no way in. */}
+           <button 
+             onClick={() => { playClickSound(); setShowTeacherModal(true); }}
+             className="w-9 h-9 md:w-11 md:h-11 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center text-lg md:text-xl border-2 border-orange-200 hover:scale-105 active:scale-95 transition-all shadow-sm relative indestructible-btn"
+             title="Tutor IA"
+             aria-label="Tutor IA"
+           >
+             <Icon name="owl" size={18} className="inline-block" />
+           </button>
 
            <button 
              onClick={() => { playClickSound(); setShowAlbum(true); }}
@@ -2429,7 +2593,7 @@ export default function App() {
                 <span className="text-[70px] drop-shadow-md mb-6 animate-float" style={{ filter: 'drop-shadow(0 10px 15px rgba(0,0,0,0.1))' }}><Icon name="zap" size={18} className="inline-block" /></span>
                 {/* Answer Feedbacks */}
                 {answerState.type !== 'idle' && (
-                  <div className={`mb-6 p-4 rounded-xl border-2 w-full animate-pop font-black text-sm text-center shadow-md ${answerState.type === 'correct' ? 'bg-emerald-50 border-emerald-300 text-emerald-800' : 'bg-rose-50 border-rose-300 text-rose-800'}`}>
+                  <div className={`mb-6 p-4 rounded-xl border-2 w-full animate-pop font-black text-sm text-center shadow-md ${answerState.type === 'correct' ? 'bg-emerald-50 border-emerald-300 text-emerald-800' : answerState.type === 'hint' ? 'bg-amber-50 border-amber-300 text-amber-800' : 'bg-rose-50 border-rose-300 text-rose-800'}`}>
                     {answerState.text}
                   </div>
                 )}
@@ -2516,7 +2680,12 @@ export default function App() {
                         onChange={(e) => {
                           setInputAnswer(e.target.value);
                           if (previewTheme) setPreviewTheme(null);
+                          if (answerState.type === 'hint') setAnswerState({ type: 'idle', text: null });
                         }}
+                        aria-label="Tu respuesta"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
                         placeholder="Ej: 15" 
                         disabled={currentProblem.solved}
                         className={`w-full px-6 py-5 rounded-[1.25rem] border-[3px] focus:outline-none font-black text-center text-[32px] text-slate-800 placeholder:text-slate-200 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.06)] transition-all ${isShaking ? 'animate-shake border-rose-400 ring-4 ring-rose-100' : 'border-slate-100 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100/50 hover:border-slate-200'}`}
@@ -2600,6 +2769,7 @@ export default function App() {
       )}
       {showWelcomeBonus && (
         <WelcomeBonusModal 
+          schoolName={schoolName}
           welcomePrize={welcomePrize} 
           handleWelcomePick={handleWelcomePick} 
           playClickSound={playClickSound}
@@ -2671,6 +2841,8 @@ export default function App() {
           onClose={() => { playClickSound(); setShowProfile(false); }} 
           onReplayTutorial={() => { playClickSound(); setTutorialStep(1); setShowProfile(false); }}
           onLogout={handleLogout}
+          accountDni={accountDni}
+          onPasswordChanged={() => showToast('Contraseña cambiada.', 'info')}
         />
       )}
 
@@ -2682,12 +2854,10 @@ export default function App() {
       )}
 
       {showTeacherModal && (
-        <TeacherModeModal 
-          currentProblemIntro={currentProblem.data.intro} 
-          currentProblemAnswer={currentProblem.data.expectedAnswer} 
-          currentProblemExplanation={currentProblem.data.explanation} 
-          callGemini={callGemini} 
-          onClose={() => { playClickSound(); setShowTeacherModal(false); }} 
+        <TeacherModeModal
+          problem={tutorProblem}
+          askTutor={askTutor}
+          onClose={() => { playClickSound(); setShowTeacherModal(false); }}
         />
       )}
 

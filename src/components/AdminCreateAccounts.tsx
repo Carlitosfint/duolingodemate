@@ -1,18 +1,11 @@
 import React, { useState } from 'react';
 import { Card, Button } from './UI';
-import { auth } from '../lib/firebase';
+import { authedFetch } from '../lib/api';
 
 type CreateResult = { name: string; email?: string; tempPassword?: string; status: 'ok' | 'error'; error?: string };
 type Grade = '3ro' | '4to' | '5to';
 type Role = 'student' | 'teacher' | 'secretary' | 'admin';
 
-const authedFetch = async (url: string, options: RequestInit = {}) => {
-  const token = await auth.currentUser?.getIdToken();
-  return fetch(url, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(options.headers || {}) },
-  });
-};
 
 // Rendered for admins and secretaries. A secretary can only enroll
 // students — appointing staff (teacher/secretary/admin) is reserved
@@ -370,7 +363,7 @@ export const AdminCreateAccounts: React.FC<{ canManageStaff: boolean }> = ({ can
                 <span className="font-mono font-bold">{result.tempPassword}</span>
               </p>
               <p className="text-xs text-emerald-600 mt-1">
-                Anota esta contraseña ahora, no se volverá a mostrar. Compártela con la persona; puede cambiarla luego desde "¿Olvidaste tu contraseña?" en el login.
+                Anota esta contraseña ahora, no se volverá a mostrar. Compártela solo con esa persona: es temporal, y al entrar por primera vez tendrá que crear la suya.
               </p>
             </>
           ) : (

@@ -11,8 +11,15 @@ import { canManageEnrollment, editableFieldsFor, visibleStudentsFor, ENROLLMENT_
 import {
   VALID_GRADES, EMAIL_REGEX, EMAIL_DOMAIN_REGEX, MAX_CURRENCY, MAX_PROGRESS,
   slugify, normalizeEmailDomain, studentEmailDomain, generateStudentLocalPart,
-  isUniqueViolation, clampInt, plainObject, cleanMistakes, cleanSections, cleanStudentUpdates,
+  isUniqueViolation, clampInt, clampDelta, cleanSyncMark, plainObject, cleanMistakes, cleanSections, cleanStudentUpdates,
 } from './src/lib/validation.ts';
+import { passwordProblem } from './src/lib/password.ts';
+import { buildTutorPrompt, cleanTutorInput, createRateLimiter } from './src/lib/tutor.ts';
+import { applyClaim, schoolToday } from './src/lib/claims.ts';
+import { PROMO_CODES } from './src/lib/promoCodes.ts';
+
+// How recent a sign-in must be to change your own password.
+const RECENT_SIGN_IN_SECONDS = 10 * 60;
 
 // Readable temp password (no ambiguous 0/O/1/l), handed to the admin
 // once at account-creation time and never stored in plain text.
@@ -27,14 +34,16 @@ const isDniConflict = isUniqueViolation;
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  // Hosts other than the current one (Render, Railway, Cloud Run run
+  // directly) say which port to listen on through PORT.
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
 
   // Database endpoints
   const { requireAuth, requirePlatformAdmin, isPlatformAdminEmail } = await import('./src/middleware/auth.ts');
   const { databaseReady, checkDatabase, isEmbeddedDatabase } = await import('./src/db/index.ts');
-  const { getUserState, updateUserState, getAllStudents, createSchoolUser, countStudentsBySection, getUserByDni, countActiveAdmins, getSchoolStaff } = await import('./src/db/users.ts');
+  const { getUserState, updateUserState, applyUserSync, writeClaim, getAllStudents, createSchoolUser, countStudentsBySection, getUserByDni, countActiveAdmins, getSchoolStaff } = await import('./src/db/users.ts');
   const { getSchool, updateSchool, createSchool, getSchoolBySlug, getSchoolByEmailDomain, deleteSchool, getSchoolsOverview } = await import('./src/db/schools.ts');
   const { adminAuth } = await import('./src/lib/firebase-admin.ts');
   await databaseReady;
@@ -284,7 +293,43 @@ async function startServer() {
   });
 
   app.get("/api/user", requireAuth, async (req: any, res) => {
-    res.json(req.dbUser);
+    // The school's name rides along so the app can say where the student
+    // is — the welcome screen used to name one particular school for every
+    // student on the platform.
+    res.json({ ...req.dbUser, schoolName: req.school?.name ?? null });
+  });
+
+  // Sets the caller's own password. Done here, not with the client SDK's
+  // updatePassword, so that the "must change" flag can only be cleared by
+  // a password that really changed: an endpoint that just cleared the flag
+  // would let anyone keep the temporary password the whole class saw.
+  app.post("/api/user/password", requireAuth, async (req: any, res) => {
+    const caller = req.dbUser;
+    const newPassword = req.body?.newPassword;
+    const problem = passwordProblem(newPassword, { email: caller.email, dni: caller.dni });
+    if (problem) {
+      return res.status(400).json({ error: problem });
+    }
+    // An unlocked session left open on a shared computer shouldn't be
+    // enough to take over the account, so this needs a sign-in from the
+    // last few minutes — the same rule Firebase applies to its own
+    // password change. The client re-asks for the current password.
+    const authTime = Number(req.user?.auth_time) || 0;
+    if (Date.now() / 1000 - authTime > RECENT_SIGN_IN_SECONDS) {
+      return res.status(401).json({
+        error: 'Por seguridad, escribe otra vez tu contraseña actual.',
+        code: 'requires_recent_login',
+      });
+    }
+    try {
+      await adminAuth.updateUser(caller.uid, { password: newPassword });
+      await updateUserState(caller.uid, { mustChangePassword: false });
+      res.json({ ok: true });
+    } catch (error: any) {
+      // Only the code: the request body holds the new password.
+      console.error('Cambio de contraseña falló:', error?.code || error?.message || 'error');
+      res.status(500).json({ error: 'No se pudo cambiar la contraseña. Intenta de nuevo.' });
+    }
   });
 
   // Read-only for any staff role (secretary/teacher enroll or manage
@@ -344,9 +389,18 @@ async function startServer() {
   app.post("/api/user/sync", requireAuth, async (req: any, res) => {
     try {
       const body = req.body || {};
+      // Current clients send coin and ticket changes ("+30 since last
+      // time"); the database adds them. A total is still accepted from a
+      // tab opened before this version, which knows no other way.
+      // A change is only accepted with the device's batch number, so that
+      // one resent after a lost answer is recognised and not added twice.
+      const mark = cleanSyncMark(body);
+      const deltas = mark
+        ? { coins: clampDelta(body.coinsDelta, MAX_CURRENCY), tickets: clampDelta(body.ticketsDelta, MAX_CURRENCY) }
+        : { coins: undefined, tickets: undefined };
       const updates: Record<string, any> = {
-        coins: clampInt(body.coins, MAX_CURRENCY),
-        tickets: clampInt(body.tickets, MAX_CURRENCY),
+        coins: deltas.coins === undefined ? clampInt(body.coins, MAX_CURRENCY) : undefined,
+        tickets: deltas.tickets === undefined ? clampInt(body.tickets, MAX_CURRENCY) : undefined,
         progress: clampInt(body.progress, MAX_PROGRESS),
         infiniteProgress: plainObject(body.infiniteProgress),
         courseProgress: plainObject(body.courseProgress),
@@ -354,16 +408,19 @@ async function startServer() {
         albums: plainObject(body.albums),
         mistakes: cleanMistakes(body.mistakes),
         avatar: typeof body.avatar === 'string' ? body.avatar.slice(0, 40) : undefined,
-        name: typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 120) : undefined,
+        // No `name`: it's enrollment data, which only the admin and the
+        // secretary may change. Accepting it here let a student rename
+        // themselves on the teacher's roster from the setup screen — and
+        // undo every correction the secretary made, on each sync.
         setupCompleted: typeof body.setupCompleted === 'boolean' ? body.setupCompleted : undefined,
       };
       for (const key of Object.keys(updates)) {
         if (updates[key] === undefined) delete updates[key];
       }
-      if (Object.keys(updates).length === 0) {
+      if (Object.keys(updates).length === 0 && deltas.coins === undefined && deltas.tickets === undefined) {
         return res.status(400).json({ error: "Nada que sincronizar." });
       }
-      const user = await updateUserState(req.user.uid, updates);
+      const user = await applyUserSync(req.user.uid, updates, deltas, MAX_CURRENCY, mark);
       res.json(user);
     } catch (error) {
       console.error(error);
@@ -562,6 +619,63 @@ async function startServer() {
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Failed to fetch students" });
+    }
+  });
+
+  // A daily challenge or a coupon code. Decided and paid here, at most once
+  // (see src/lib/claims.ts): both used to be settled in the browser, where
+  // a reload reset the challenges and a coupon could be cashed forever.
+  app.post("/api/user/claim", requireAuth, async (req: any, res) => {
+    try {
+      let row = req.dbUser;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) row = await getUserState(row.uid);
+        const result = applyClaim(row.claims, req.body, { today: schoolToday(), inputs: row, codes: PROMO_CODES });
+        if (!result.ok) return res.status(result.status).json({ error: result.error });
+        const updated = await writeClaim(row.uid, row.claims, result.claims, result.reward, MAX_CURRENCY);
+        if (updated) return res.json({ user: updated, reward: result.reward });
+      }
+      res.status(409).json({ error: "Intenta de nuevo en un momento." });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudo reclamar el premio." });
+    }
+  });
+
+  // A reward from the teacher: coins and/or tickets added to what the
+  // student has, in the database. The panel used to send the new total it
+  // had worked out from a list loaded minutes earlier, which erased
+  // whatever the student had earned (or spent) since.
+  const MAX_AWARD = 10_000;
+  app.post("/api/teacher/student/:uid/award", requireAuth, async (req: any, res) => {
+    try {
+      const caller = req.dbUser;
+      if (caller.role !== 'teacher' && caller.role !== 'admin' && caller.role !== 'secretary') {
+        return res.status(403).json({ error: "Solo el personal del colegio puede premiar." });
+      }
+      const target = await getUserState(req.params.uid);
+      if (!target || target.schoolId !== caller.schoolId || target.role !== 'student') {
+        return res.status(404).json({ error: "No se encontró a ese alumno en tu colegio." });
+      }
+      if (visibleStudentsFor(caller, [target]).length === 0) {
+        return res.status(403).json({ error: "Ese alumno no pertenece a tus salones." });
+      }
+      if (target.active === false) {
+        return res.status(400).json({ error: "Ese alumno está de baja." });
+      }
+      const amount = (value: unknown) => {
+        const n = clampInt(value, MAX_AWARD);
+        return n ? n : undefined;
+      };
+      const deltas = { coins: amount(req.body?.coins), tickets: amount(req.body?.tickets) };
+      if (deltas.coins === undefined && deltas.tickets === undefined) {
+        return res.status(400).json({ error: "Indica cuántas monedas o tickets dar." });
+      }
+      const updated = await applyUserSync(target.uid, {}, deltas, MAX_CURRENCY);
+      res.json(updated);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "No se pudo entregar el premio." });
     }
   });
 
@@ -788,6 +902,8 @@ async function startServer() {
 
       const tempPassword = generateTempPassword();
       await adminAuth.updateUser(targetUid, { password: tempPassword });
+      // Whoever resets it sees it; the student makes their own on next login.
+      await updateUserState(targetUid, { mustChangePassword: true });
       res.json({ tempPassword, name: target.name, email: target.email });
     } catch (error: any) {
       console.error(error);
@@ -799,34 +915,36 @@ async function startServer() {
   });
 
 
-  // Gemini proxy. Behind auth on purpose: unauthenticated it's an open
-  // relay to a paid API that anyone who finds the URL can bill to the
-  // platform, with no way to tell whose traffic it is.
-  app.post("/api/gemini", requireAuth, async (req: any, res) => {
+  // The AI tutor. Behind auth, and the prompt is assembled here from the
+  // problem and the student's question (src/lib/tutor.ts): this used to
+  // forward whatever text it received, which made it a general-purpose
+  // chatbot on the school's API key for anyone with an account.
+  const tutorAllowance = createRateLimiter({ limit: 20, windowMs: 10 * 60 * 1000 });
+  app.post("/api/tutor", requireAuth, async (req: any, res) => {
+    const input = cleanTutorInput(req.body);
+    if (!input) {
+      return res.status(400).json({ error: "Escribe una pregunta sobre el reto." });
+    }
+    if (!tutorAllowance(req.dbUser.uid)) {
+      return res.status(429).json({ error: "Hiciste muchas preguntas seguidas. Intenta resolverlo un rato y vuelve en unos minutos." });
+    }
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ error: "El tutor no está disponible en este momento." });
+    }
     try {
-      const prompt = req.body?.prompt;
-      if (typeof prompt !== 'string' || !prompt.trim()) {
-        return res.status(400).json({ error: "Prompt is required" });
-      }
-      if (prompt.length > 4000) {
-        return res.status(400).json({ error: "El texto es demasiado largo." });
-      }
-
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return res.status(500).json({ error: "Gemini API key is not configured" });
-      }
-
       const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
+        // Configurable so a retired model can be swapped without a release.
+        model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+        contents: buildTutorPrompt(input),
       });
-
-      res.json({ text: response.text });
+      const text = response.text?.trim();
+      if (!text) throw new Error("respuesta vacía");
+      res.json({ text });
     } catch (error: any) {
-      console.error("Gemini API error:", error);
-      res.status(500).json({ error: error?.message || "Failed to generate content" });
+      console.error("Tutor IA falló:", error?.message || error);
+      res.status(502).json({ error: "El tutor no pudo responder. Intenta de nuevo en un momento." });
     }
   });
 

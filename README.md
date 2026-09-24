@@ -20,3 +20,24 @@ View your app in AI Studio: https://ai.studio/apps/de1470c1-bbae-45b8-9a1a-c09c7
 3. Open `http://localhost:3000`. Firebase credentials are still required to
    sign in. For AI features, copy `.env.example` to `.env.local` and set
    `GEMINI_API_KEY`. A deployed/production instance must configure `SQL_*`.
+
+## Checks
+
+The same three that CI runs on every push:
+
+```
+npm run lint   # TypeScript
+npm test       # unit tests, plus database tests on an in-memory Postgres
+npm run build
+```
+
+## Database changes
+
+The schema lives in `src/db/schema.ts`. After pulling changes that touch it,
+apply them to the production database (Supabase) before deploying:
+
+```
+npm run db:push
+```
+
+The local embedded database adds new columns by itself on startup.

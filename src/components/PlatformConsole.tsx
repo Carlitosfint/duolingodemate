@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Button } from './UI';
 import { Icon } from './CustomIcons';
-import { auth } from '../lib/firebase.ts';
+import { authedFetch } from '../lib/api';
 
 type School = {
   id: number;
@@ -29,15 +29,6 @@ export const PlatformConsole: React.FC<{ email?: string; onLogout: () => void }>
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
-  const authedFetch = async (url: string, options: RequestInit = {}) => {
-    const user = auth.currentUser;
-    if (!user) throw new Error('no-session');
-    const token = await user.getIdToken();
-    return fetch(url, {
-      ...options,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(options.headers || {}) },
-    });
-  };
 
   const load = async () => {
     try {

@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'motion/react';
 import { Icon } from './CustomIcons';
-import { Avatar } from './Avatar';
 import { ToastTone } from './Toast';
 import { apiRequest } from '../lib/api';
 import { VALID_GRADES } from '../lib/validation';
@@ -153,6 +152,20 @@ export const StudentDrawer: React.FC<{
       return row;
     });
 
+  // Added on the server to whatever the student has right now. Sending
+  // "coins + 100" computed from this list would erase anything the student
+  // earned or spent since the list was loaded.
+  const award = (key: string, amount: { coins?: number; tickets?: number }, success: string) =>
+    run(key, async () => {
+      const row = await apiRequest<StudentRow>(`/api/teacher/student/${student.uid}/award`, 'No se pudo entregar el premio.', {
+        method: 'POST',
+        body: JSON.stringify(amount),
+      });
+      onUpdated(row);
+      notify(success);
+      return row;
+    });
+
   const changes = enrollmentChanges(student, draft);
   const dirty = Object.keys(changes).length > 0;
 
@@ -222,7 +235,6 @@ export const StudentDrawer: React.FC<{
         transition={{ type: 'spring', stiffness: 380, damping: 38 }}
       >
         <header className="flex items-start gap-4 p-5 sm:p-6 border-b border-slate-100 shrink-0">
-          <Avatar name={student.avatar || 'fox'} size={56} />
           <div className="min-w-0 flex-1">
             <h2 id="student-drawer-title" className="text-xl font-black text-slate-800 leading-tight break-words">
               {student.name || 'Sin nombre'}
@@ -281,14 +293,14 @@ export const StudentDrawer: React.FC<{
           >
             <div className="grid grid-cols-2 gap-2">
               <button
-                onClick={() => patch('coins', { coins: (student.coins ?? 0) + 100 }, `+100 monedas para ${firstName}.`)}
+                onClick={() => award('coins', { coins: 100 }, `+100 monedas para ${firstName}.`)}
                 disabled={busy !== null || inactive}
                 className="flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-amber-50 border-2 border-amber-200 text-amber-800 font-black text-sm hover:bg-amber-100 disabled:opacity-50"
               >
                 <Icon name="coins" size={18} /> +100 monedas
               </button>
               <button
-                onClick={() => patch('tickets', { tickets: (student.tickets ?? 0) + 5 }, `+5 tickets para ${firstName}.`)}
+                onClick={() => award('tickets', { tickets: 5 }, `+5 tickets para ${firstName}.`)}
                 disabled={busy !== null || inactive}
                 className="flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-blue-50 border-2 border-blue-200 text-blue-800 font-black text-sm hover:bg-blue-100 disabled:opacity-50"
               >
@@ -423,7 +435,7 @@ export const StudentDrawer: React.FC<{
                       </button>
                     </div>
                     <p className="text-xs font-bold text-emerald-700">
-                      Anótala ahora: no se vuelve a mostrar. Entrégasela solo a {firstName}.
+                      Anótala ahora: no se vuelve a mostrar. Entrégasela solo a {firstName}; es temporal y al entrar creará la suya.
                     </p>
                   </div>
                 ) : (

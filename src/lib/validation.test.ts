@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cleanSyncMark,
+  clampDelta,
   clampInt,
   cleanMistakes,
   normalizeEmailDomain,
@@ -107,6 +109,50 @@ describe('clampInt', () => {
 
   it('floors fractions', () => {
     expect(clampInt(10.9, MAX_CURRENCY)).toBe(10);
+  });
+});
+
+describe('clampDelta', () => {
+  it('keeps a change in either direction', () => {
+    expect(clampDelta(30, MAX_CURRENCY)).toBe(30);
+    expect(clampDelta(-120, MAX_CURRENCY)).toBe(-120);
+    expect(clampDelta(0, MAX_CURRENCY)).toBe(0);
+  });
+
+  it('bounds an absurd change', () => {
+    expect(clampDelta(1e12, MAX_CURRENCY)).toBe(MAX_CURRENCY);
+    expect(clampDelta(-1e12, MAX_CURRENCY)).toBe(-MAX_CURRENCY);
+  });
+
+  it('drops fractions toward zero', () => {
+    expect(clampDelta(10.9, MAX_CURRENCY)).toBe(10);
+    expect(clampDelta(-10.9, MAX_CURRENCY)).toBe(-10);
+  });
+
+  it('ignores anything that is not a real number', () => {
+    for (const value of ['5', NaN, Infinity, null, undefined, {}, true]) {
+      expect(clampDelta(value, MAX_CURRENCY)).toBeUndefined();
+    }
+  });
+});
+
+describe('cleanSyncMark', () => {
+  it('accepts a device id and a positive sequence number', () => {
+    expect(cleanSyncMark({ deviceId: 'a1b2c3d4e5', seq: 7 })).toEqual({ device: 'a1b2c3d4e5', seq: 7 });
+  });
+
+  it('rejects anything that could be abused as a JSON key or a number', () => {
+    for (const body of [
+      {}, { deviceId: 'a1b2c3d4e5' }, { seq: 3 },
+      { deviceId: 'short', seq: 1 },
+      { deviceId: "a1b2c3d4e5'; drop", seq: 1 },
+      { deviceId: 'a1b2c3d4e5', seq: 0 },
+      { deviceId: 'a1b2c3d4e5', seq: 1.5 },
+      { deviceId: 'a1b2c3d4e5', seq: '4' },
+      { deviceId: 'a1b2c3d4e5', seq: 2 ** 40 },
+    ]) {
+      expect(cleanSyncMark(body), JSON.stringify(body)).toBeUndefined();
+    }
   });
 });
 
