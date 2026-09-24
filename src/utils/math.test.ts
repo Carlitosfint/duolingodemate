@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as RZ from './math_razonamiento_5to.ts';
 import * as GE from './math_geometria_5to.ts';
 import * as TR from './math_trigonometria.ts';
+import { isCorrectAnswer, keyValue } from '../lib/answers.ts';
 
 // A wrong answer key is the worst bug this product can ship: the student is
 // right and the app tells them they're wrong. These tests re-derive the
@@ -44,10 +45,20 @@ describe.each(Object.keys(generators))('%s', (name) => {
     }
   });
 
+  // Read with the same parser the exercise screen grades with: parseFloat
+  // would read a fraction key like "16/3" as 16 and still call it a number.
   it('answers with a real number', () => {
     for (const p of problems) {
-      const value = parseFloat(p.expectedAnswer);
-      expect(Number.isFinite(value), `respuesta no numérica: ${p.expectedAnswer}`).toBe(true);
+      if (p.visualData?.type === 'truth_table') continue;
+      const value = keyValue(p.expectedAnswer);
+      expect(value !== null && Number.isFinite(value), `respuesta no numérica: ${p.expectedAnswer}`).toBe(true);
+    }
+  });
+
+  it('accepts its own key as a correct answer', () => {
+    for (const p of problems) {
+      if (p.visualData?.type === 'truth_table') continue;
+      expect(isCorrectAnswer(String(p.expectedAnswer), p.expectedAnswer), `${p.expectedAnswer} :: ${p.intro}`).toBe(true);
     }
   });
 
@@ -202,6 +213,25 @@ describe('claves verificadas de forma independiente', () => {
       let angle = Math.abs(30 * h - 5.5 * min);
       if (angle > 180) angle = 360 - angle;
       expect(angle, p.intro).toBeCloseTo(parseFloat(p.expectedAnswer), 10);
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  // 64·30/360 is 16/3. The key used to be 5.33, and the exact answer
+  // "16/3" was read as 16 and marked wrong.
+  it('sector circular: la clave es exacta y acepta la fracción', () => {
+    let checked = 0;
+    for (let i = 0; i < SAMPLE * 3; i++) {
+      const golden = i % 4 === 0;
+      const p = GE.generateSuperficiesCirculares(golden);
+      const m = p.intro.match(/sector circular cuyo radio mide (\d+) cm y su ángulo central es (\d+)°/);
+      if (!m) continue;
+      checked++;
+      const [r, angle] = m.slice(1).map(Number);
+      const exact = (r * r * angle) / 360 + (golden ? 1 : 0);
+      expect(keyValue(p.expectedAnswer)!, p.intro).toBeCloseTo(exact, 12);
+      expect(isCorrectAnswer(exact.toFixed(2), p.expectedAnswer), `${exact.toFixed(2)} para ${p.expectedAnswer}`).toBe(true);
+      expect(p.explanation).not.toMatch(/NaN|undefined/);
     }
     expect(checked).toBeGreaterThan(0);
   });

@@ -12,6 +12,8 @@ export interface AuthRequest extends Request {
   // route reads this instead of re-querying, and uses its schoolId to
   // scope whatever it does.
   dbUser?: typeof users.$inferSelect;
+  // Their school, already loaded to check it isn't suspended.
+  school?: Awaited<ReturnType<typeof getSchool>>;
 }
 
 // Who operates the platform itself, read from the environment rather than
@@ -106,6 +108,7 @@ export const requireAuth = async (
       });
     }
     req.dbUser = dbUser;
+    req.school = school;
     next();
   } catch (error) {
     console.error('Error fetching user from database:', error);

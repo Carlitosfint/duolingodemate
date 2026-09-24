@@ -49,9 +49,13 @@ function createDatabase() {
   // A real PostgreSQL engine, embedded in the Node process. This keeps local
   // development usable after a fresh clone without silently changing the
   // production database path or requiring Docker/Postgres to be installed.
-  const localDataDirectory = path.resolve('.local-data');
-  fs.mkdirSync(localDataDirectory, { recursive: true });
-  const client = new PGlite(path.join(localDataDirectory, 'postgres'));
+  // LOCAL_DATA_DIR=memory keeps the whole database in memory — what the
+  // tests use, so they run against real Postgres without touching the
+  // developer's own local data.
+  const inMemory = process.env.LOCAL_DATA_DIR === 'memory';
+  const localDataDirectory = inMemory ? 'memoria' : path.resolve(process.env.LOCAL_DATA_DIR || '.local-data');
+  if (!inMemory) fs.mkdirSync(localDataDirectory, { recursive: true });
+  const client = inMemory ? new PGlite() : new PGlite(path.join(localDataDirectory, 'postgres'));
   const ready = client.exec(`
     CREATE TABLE IF NOT EXISTS schools (
       id serial PRIMARY KEY,
@@ -94,10 +98,21 @@ function createDatabase() {
       setup_completed boolean DEFAULT false,
       classroom text DEFAULT '',
       classrooms jsonb DEFAULT '[]'::jsonb,
-      active boolean DEFAULT true NOT NULL
+      active boolean DEFAULT true NOT NULL,
+      must_change_password boolean DEFAULT true NOT NULL,
+      sync_marks jsonb DEFAULT '{}'::jsonb,
+      claims jsonb DEFAULT '{}'::jsonb
     );
     CREATE UNIQUE INDEX IF NOT EXISTS users_dni_unique
       ON users (dni) WHERE dni IS NOT NULL;
+
+    -- CREATE TABLE IF NOT EXISTS leaves a database from an earlier version
+    -- without the columns added since. Rows that already exist locally
+    -- belong to the developer, so they start at false; new ones at true.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password boolean NOT NULL DEFAULT false;
+    ALTER TABLE users ALTER COLUMN must_change_password SET DEFAULT true;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS sync_marks jsonb DEFAULT '{}'::jsonb;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS claims jsonb DEFAULT '{}'::jsonb;
   `).then(() => {
     console.log(`Base de datos local lista en ${localDataDirectory}`);
   });

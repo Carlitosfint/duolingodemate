@@ -27,6 +27,9 @@ export async function createSchoolUser(params: {
       grade: params.grade,
       section: params.section,
       classroom: params.classroom,
+      // Explicit rather than left to the column default: every account
+      // created here comes with a temporary password someone else has seen.
+      mustChangePassword: true,
     })
     .returning();
 
@@ -54,6 +57,76 @@ export async function updateUserState(uid: string, data: Partial<typeof users.$i
     .where(eq(users.uid, uid))
     .returning();
   return result[0];
+}
+
+// Writes a sync from the student's device. Coins and tickets arrive as
+// changes, not totals, and are added in the database itself: a total from
+// the device would erase anything granted on the server meanwhile — a
+// teacher's reward given while the student is playing.
+//
+// With `mark`, the change is applied only if this device hasn't had a batch
+// with that number applied before; the other fields are written either way
+// (they're values, not changes, so repeating them is harmless).
+export async function applyUserSync(
+  uid: string,
+  data: Partial<typeof users.$inferInsert>,
+  deltas: { coins?: number; tickets?: number },
+  max: number,
+  mark?: { device: string; seq: number },
+) {
+  const hasDelta = deltas.coins !== undefined || deltas.tickets !== undefined;
+  const set: Record<string, unknown> = { ...data };
+  if (deltas.coins !== undefined) {
+    set.coins = sql`GREATEST(0, LEAST(${max}, COALESCE(${users.coins}, 0) + ${deltas.coins}))`;
+  }
+  if (deltas.tickets !== undefined) {
+    set.tickets = sql`GREATEST(0, LEAST(${max}, COALESCE(${users.tickets}, 0) + ${deltas.tickets}))`;
+  }
+  if (hasDelta && mark) {
+    set.syncMarks = sql`jsonb_set(COALESCE(${users.syncMarks}, '{}'::jsonb), ARRAY[${mark.device}]::text[], to_jsonb(${mark.seq}::int), true)`;
+    const applied = await db.update(users)
+      .set(set as Partial<typeof users.$inferInsert>)
+      .where(and(
+        eq(users.uid, uid),
+        sql`COALESCE((${users.syncMarks} ->> ${mark.device})::int, 0) < ${mark.seq}`,
+      ))
+      .returning();
+    if (applied[0]) return applied[0];
+    // Already applied: this is the same batch again.
+    return Object.keys(data).length > 0 ? updateUserState(uid, data) : getUserState(uid);
+  }
+  if (Object.keys(set).length === 0) return getUserState(uid);
+  const result = await db.update(users)
+    .set(set as Partial<typeof users.$inferInsert>)
+    .where(eq(users.uid, uid))
+    .returning();
+  return result[0];
+}
+
+// Records a claimed reward and pays it, in one statement — and only if the
+// stored claims are still the ones the claim was decided on. Two requests
+// for the same reward at once would otherwise both see it unclaimed.
+// null: the claims changed in between; decide again and retry.
+export async function writeClaim(
+  uid: string,
+  before: unknown,
+  after: unknown,
+  reward: { coins: number; tickets: number },
+  max: number,
+) {
+  const set: Record<string, unknown> = {
+    claims: after,
+    coins: sql`GREATEST(0, LEAST(${max}, COALESCE(${users.coins}, 0) + ${reward.coins}))`,
+    tickets: sql`GREATEST(0, LEAST(${max}, COALESCE(${users.tickets}, 0) + ${reward.tickets}))`,
+  };
+  const result = await db.update(users)
+    .set(set as Partial<typeof users.$inferInsert>)
+    .where(and(
+      eq(users.uid, uid),
+      sql`${users.claims} IS NOT DISTINCT FROM ${before === undefined || before === null ? null : JSON.stringify(before)}::jsonb`,
+    ))
+    .returning();
+  return result[0] ?? null;
 }
 
 export async function getUserState(uid: string) {
@@ -89,6 +162,9 @@ export async function ensureLocalUser(params: { uid: string; email: string; name
     name: params.name,
     schoolId: school.id,
     role,
+    // This is the developer's own Firebase account, with a password they
+    // chose. Forcing a change here would change their real password.
+    mustChangePassword: false,
   }).onConflictDoNothing({ target: users.uid });
 
   return getUserState(params.uid);

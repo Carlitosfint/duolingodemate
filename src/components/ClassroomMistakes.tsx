@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Card } from './UI';
 import { Icon } from './CustomIcons';
-import { auth } from '../lib/firebase.ts';
+import { apiRequest } from '../lib/api';
 
 type TopicRow = { topic: string; misses: number; students: number };
 
@@ -19,28 +19,17 @@ export const ClassroomMistakes: React.FC<{ classroom: string }> = ({ classroom }
     (async () => {
       setLoading(true);
       try {
-        const user = auth.currentUser;
-        if (!user) {
-          if (!cancelled) setError('Tu sesión expiró. Vuelve a iniciar sesión.');
-          return;
-        }
-        const token = await user.getIdToken();
         const query = classroom ? `?classroom=${encodeURIComponent(classroom)}` : '';
-        const res = await fetch(`/api/teacher/mistakes${query}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const body = await apiRequest<{ topics?: TopicRow[]; studentsConsidered?: number }>(
+          `/api/teacher/mistakes${query}`,
+          'No se pudieron cargar los errores del salón.',
+        );
         if (cancelled) return;
-        if (res.ok) {
-          const body = await res.json();
-          setTopics(body.topics || []);
-          setConsidered(body.studentsConsidered || 0);
-          setError(null);
-        } else {
-          const body = await res.json().catch(() => ({}));
-          setError(body.error || 'No se pudieron cargar los errores del salón.');
-        }
-      } catch {
-        if (!cancelled) setError('Error de conexión al cargar los errores.');
+        setTopics(body.topics || []);
+        setConsidered(body.studentsConsidered || 0);
+        setError(null);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Error de conexión al cargar los errores.');
       } finally {
         if (!cancelled) setLoading(false);
       }

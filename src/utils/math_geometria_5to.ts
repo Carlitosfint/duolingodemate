@@ -169,23 +169,45 @@ Luego, en el triángulo ABM, la mediana AN divide su área en dos partes iguales
   };
 }
 
+const gcd = (p: number, q: number): number => (q === 0 ? p : gcd(q, p % q));
+
+// A fraction as the answer key: a decimal when it ends ("25/2" -> "12.5"),
+// otherwise the fraction itself ("16/3"). The grader reads both, and accepts
+// the student's rounding of it too.
+function fractionKey(num: number, den: number): string {
+  let rest = den;
+  for (const p of [2, 5]) while (rest % p === 0) rest /= p;
+  return rest === 1 ? String(num / den) : `${num}/${den}`;
+}
+
 export function generateSuperficiesCirculares(isGolden: boolean): ProblemData {
   const t = rnd(0, 1);
   let intro, expected, explanation, visualData;
   
   if (t === 0) {
-    // Sector circular: S = (pi * r^2 * theta) / 360
-    // We will ask for S / pi to make answer integer
+    // Sector circular: S = (pi * r^2 * theta) / 360, asked as S / pi.
+    // That's often not a whole number (64·30/360 = 16/3). It used to be
+    // rounded to 5.33 for the key, so the exact answer "16/3" was marked
+    // wrong; now the key is the exact fraction.
     const r = rnd(2, 6) * 2;
     const angles = [30, 45, 60, 90, 120];
     const angle = angles[rnd(0, angles.length - 1)];
-    const S_pi = Math.round(((r * r * angle) / 360) * 100) / 100;
-    
-    intro = `Calcula el área de un sector circular cuyo radio mide ${r} cm y su ángulo central es ${angle}°. Da tu respuesta dividida entre π (pi).`;
-    expected = S_pi;
+    const g = gcd(r * r * angle, 360);
+    let num = (r * r * angle) / g;
+    const den = 360 / g;
+    if (isGolden) num += den; // the golden version asks for 1 more
+    const baseNum = num - (isGolden ? den : 0);
+    const base = fractionKey(baseNum, den);
+    const isFraction = base.includes('/');
+    // "16π/3", not "16/3π", which reads as 16 over 3π.
+    const withPi = isFraction ? `${baseNum}π/${den}` : `${base}π`;
+    const approx = isFraction ? ` (≈ ${(baseNum / den).toFixed(2)})` : '';
+
+    intro = `Calcula el área de un sector circular cuyo radio mide ${r} cm y su ángulo central es ${angle}°. Da tu respuesta dividida entre π (pi); si no sale exacta, puedes escribirla como fracción.`;
+    expected = fractionKey(num, den);
     explanation = `Fórmula del sector circular: S = (π × r² × θ) / 360°.
-S = (π × ${r}² × ${angle}) / 360 = (π × ${r * r} × ${angle}) / 360 = ${S_pi}π.
-Como piden la respuesta dividida entre π, el valor es ${S_pi}.`;
+S = (π × ${r}² × ${angle}) / 360 = (π × ${r * r} × ${angle}) / 360 = ${withPi}.
+Como piden la respuesta dividida entre π, el valor es ${base}${approx}.`;
 
     visualData = {
       type: 'geometry',
@@ -212,7 +234,8 @@ La respuesta sin π es ${expected}.`;
 
   if (isGolden) {
     intro += ` Súmale 1 al final.`;
-    expected += 1;
+    // The sector's key is already a string with the 1 added.
+    if (t !== 0) expected = Number(expected) + 1;
     explanation += ` Sumándole 1 queda en ${expected}.`;
   }
 

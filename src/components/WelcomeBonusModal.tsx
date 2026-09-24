@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Card, Button } from './UI';
 
 interface WelcomeBonusModalProps {
+  schoolName?: string | null;
   welcomePrize: { icon: string; name: string } | null;
   handleWelcomePick: (index: number) => void;
   playClickSound: () => void;
@@ -10,6 +11,7 @@ interface WelcomeBonusModalProps {
 }
 
 export const WelcomeBonusModal: React.FC<WelcomeBonusModalProps> = ({
+  schoolName,
   welcomePrize,
   handleWelcomePick,
   playClickSound,
@@ -52,7 +54,8 @@ export const WelcomeBonusModal: React.FC<WelcomeBonusModalProps> = ({
             <div className="text-5xl mb-4 animate-bounce"><Icon name="gift" className="inline-block" size={18} /></div>
             <h3 className="text-2xl font-black text-emerald-600 mb-2">¡Bono de Bienvenida!</h3>
             <p className="text-slate-600 font-semibold text-sm mb-6 leading-relaxed">
-              ¡Felicidades por unirte al Colegio Ángeles de Jesús! Elige uno de los regalos para iniciar tu portafolio financiero:
+              {schoolName ? <><span className="font-black text-slate-800">{schoolName}</span> te da la bienvenida. </> : '¡Te damos la bienvenida! '}
+              Elige uno de los regalos para iniciar tu portafolio financiero:
             </p>
             
             <div className="grid grid-cols-3 gap-3 w-full">
@@ -72,7 +75,7 @@ export const WelcomeBonusModal: React.FC<WelcomeBonusModalProps> = ({
           // Regalo 1 Result
           <div className="animate-pop flex flex-col items-center">
             <div className="mb-4 animate-bounce"><Icon name="coins" size={56} className="text-amber-500 inline-block" /></div>
-            <h3 className="text-2xl font-black text-emerald-600 mb-1">Bono Inicial Ángeles</h3>
+            <h3 className="text-2xl font-black text-emerald-600 mb-1">Bono de Bienvenida</h3>
             <p className="text-slate-500 font-bold text-xs uppercase tracking-widest mb-6">Regalo Seleccionado</p>
             
             <div className="p-6 bg-white w-full rounded-2xl border-2 border-emerald-100 shadow-inner flex flex-col items-center mb-6">

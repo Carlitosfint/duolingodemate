@@ -1,14 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Button } from './UI';
-import { auth } from '../lib/firebase';
+import { authedFetch } from '../lib/api';
 
-const authedFetch = async (url: string, options: RequestInit = {}) => {
-  const token = await auth.currentUser?.getIdToken();
-  return fetch(url, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(options.headers || {}) },
-  });
-};
 
 // Only rendered for admins — this changes the whole school's settings
 // (the domain every student's login email is built from, and which
