@@ -181,7 +181,7 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
         @keyframes popUpCircle { to { transform: translate(-50%, 50%); } }
 
         .circles-container {
-          position: fixed; bottom: 0; left: 50%; z-index: 20; pointer-events: none;
+          position: fixed; bottom: 0; left: 50%; z-index: 40; pointer-events: none;
         }
         .circle {
           position: absolute; bottom: 0; left: 0; border-radius: 50%;
@@ -255,7 +255,7 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
       </div>
 
       <div className="w-full max-w-md px-6 relative z-30">
-        <div ref={cardRef} className="login-glass-card rounded-[2rem] p-10 relative overflow-hidden z-30 bg-white">
+        <div ref={cardRef} className="login-glass-card rounded-[2rem] px-10 pt-10 pb-[200px] relative overflow-hidden z-30 bg-white">
           <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-slate-50 to-transparent rounded-bl-full pointer-events-none"></div>
 
           <div className="text-center mb-10">
