@@ -10,11 +10,11 @@ export const roulettePrizes = [
 ];
 
 export const themes = [
-  { id: 'default', name: 'Clásico', desc: 'El diseño limpio original.', price: 0, bgClass: 'bg-slate-50' },
-  { id: 'neon', name: 'Cyber Neón', desc: 'Colores oscuros y luces neón.', price: 5, bgClass: 'bg-slate-900 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-900 via-slate-900 to-black' },
-  { id: 'galaxy', name: 'Wall Street', desc: 'El corazón de la bolsa de valores.', price: 10, bgClass: 'bg-slate-950 bg-[url("https://www.transparenttextures.com/patterns/stardust.png")]' },
-  { id: 'volcano', name: 'Volcán', desc: 'Calor extremo.', price: 8, bgClass: 'bg-red-950 bg-[radial-gradient(ellipse_at_bottom,_var(--tw-gradient-stops))] from-red-900 via-orange-950 to-black' },
-  { id: 'forest', name: 'Banco Central', desc: 'Verde dinero.', price: 12, bgClass: 'bg-emerald-950 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-emerald-900 via-teal-950 to-black' }
+  { id: 'default', name: 'Clásico Escolar', desc: 'Tonos claros de pizarra blanca y azul académico.', price: 0, bgClass: 'bg-slate-100' },
+  { id: 'neon', name: 'Cyber Neón', desc: 'Modo nocturno profundo con bordes índigo y cian eléctrico.', price: 5, bgClass: 'bg-slate-950' },
+  { id: 'galaxy', name: 'Wall Street', desc: 'Pizarra bursátil negra con acabados en oro ejecutivo.', price: 10, bgClass: 'bg-zinc-950' },
+  { id: 'volcano', name: 'Volcán Carmesí', desc: 'Contraste cálido de obsidiana, terracota y fuego.', price: 8, bgClass: 'bg-stone-950' },
+  { id: 'forest', name: 'Banco Central', desc: 'Bóveda verde esmeralda con acentos de jade y menta.', price: 12, bgClass: 'bg-emerald-950' }
 ];
 
 export const initialAlbums: Album[] = [
@@ -41,9 +41,9 @@ export const MARKET_EVENTS: MarketEvent[] = [
 ];
 
 export const SHOP_BANNERS: ShopBanner[] = [
-  { id: 'b1', title: '¡Seguros Financieros!', desc: 'Compra escudos o multiplicadores para asegurar tu racha y doblar dividendos.', bg: 'bg-gradient-to-r from-fuchsia-600 to-purple-600', icon: 'zap' },
-  { id: 'b2', title: '¡Poderes Especiales!', desc: 'Dirígete a la Tienda y equipa un poder para ganar comisiones automáticas.', bg: 'bg-gradient-to-r from-emerald-50 to-teal-600', icon: 'zap' },
-  { id: 'b3', title: '¡Cajas Fuertes!', desc: 'Ahorra para cofres Supremos o Titán y consigue piezas financieras raras.', bg: 'bg-gradient-to-r from-yellow-500 to-amber-600', icon: '💎' }
+  { id: 'b1', title: '¡Seguros Financieros!', desc: 'Compra escudos o multiplicadores para asegurar tu racha y doblar dividendos.', bg: 'bg-fuchsia-600', icon: 'zap' },
+  { id: 'b2', title: '¡Poderes Especiales!', desc: 'Dirígete a la Tienda y equipa un poder para ganar comisiones automáticas.', bg: 'bg-emerald-600', icon: 'zap' },
+  { id: 'b3', title: '¡Cajas Fuertes!', desc: 'Ahorra para cofres Supremos o Titán y consigue piezas financieras raras.', bg: 'bg-amber-600', icon: '💎' }
 ];
 
 export const TROPHIES: Trophy[] = [
@@ -55,8 +55,6 @@ export const TROPHIES: Trophy[] = [
   { id: 'supernova_3', name: 'Crack Matemático', desc: 'Activa la Racha Supernova 3 veces.', icon: '⚡', req: (s) => s.boostsTriggered >= 3 },
   { id: 'legend', name: 'Cazador de Enigmas', desc: 'Resuelve un desafío Legendario.', icon: '💎', req: (s) => s.legendaryWins >= 1 }
 ];
-
-
 
 export const THEME_STYLES: Record<string, {
   bgClass: string;
@@ -71,11 +69,13 @@ export const THEME_STYLES: Record<string, {
   inputClass: string;
   bezelClass: string;
   emoji: string;
+  swatches: [string, string, string];
+  tag: string;
 }> = {
   default: {
-    bgClass: 'bg-slate-50',
-    cardBg: 'bg-white/95 backdrop-blur-xl border-slate-200 text-slate-800 shadow-sm',
-    headerBg: 'bg-white/90 backdrop-blur-xl border-slate-200 text-slate-800 shadow-sm',
+    bgClass: 'bg-slate-100',
+    cardBg: 'bg-white border-slate-200 text-slate-800 shadow-sm',
+    headerBg: 'bg-white border-slate-200 text-slate-800 shadow-sm',
     textPrimary: 'text-slate-800',
     textSecondary: 'text-slate-500',
     borderColor: 'border-slate-200',
@@ -83,63 +83,73 @@ export const THEME_STYLES: Record<string, {
     buttonClass: 'bg-blue-600 hover:bg-blue-500 text-white',
     accentText: 'text-blue-600',
     inputClass: 'bg-slate-50 border-slate-200 text-slate-800 focus:border-blue-500',
-    bezelClass: 'bg-slate-50 border-slate-200',
-    emoji: 'bank'
+    bezelClass: 'bg-white border-slate-200',
+    emoji: 'theme_default',
+    swatches: ['#f1f5f9', '#ffffff', '#2563eb'],
+    tag: 'Luz Día'
   },
   neon: {
-    bgClass: 'bg-slate-950 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-950 via-slate-900 to-black',
-    cardBg: 'bg-slate-900/90 backdrop-blur-xl border-indigo-500/40 text-indigo-100 shadow-[0_0_20px_rgba(99,102,241,0.15)]',
-    headerBg: 'bg-slate-900/90 backdrop-blur-xl border-indigo-500/50 text-indigo-200 shadow-[0_0_15px_rgba(99,102,241,0.2)]',
-    textPrimary: 'text-indigo-100',
+    bgClass: 'bg-slate-950',
+    cardBg: 'bg-slate-900 border-indigo-500/50 text-indigo-50 shadow-sm',
+    headerBg: 'bg-slate-900 border-indigo-500/50 text-indigo-100 shadow-sm',
+    textPrimary: 'text-indigo-50',
     textSecondary: 'text-indigo-300',
-    borderColor: 'border-indigo-500/40',
-    bentoBg: 'bg-slate-900/80 border-indigo-500/30',
-    buttonClass: 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-[0_0_10px_rgba(99,102,241,0.5)] border-indigo-400',
-    accentText: 'text-pink-400 font-extrabold',
-    inputClass: 'bg-slate-800/80 border-indigo-500/50 text-indigo-50 focus:border-indigo-400 focus:shadow-[0_0_10px_rgba(99,102,241,0.3)]',
-    bezelClass: 'bg-slate-950/80 border-indigo-500/30',
-    emoji: 'zap'
+    borderColor: 'border-indigo-500/50',
+    bentoBg: 'bg-slate-900 border-indigo-500/40',
+    buttonClass: 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-400',
+    accentText: 'text-cyan-400 font-extrabold',
+    inputClass: 'bg-slate-800 border-indigo-500/50 text-indigo-50 focus:border-cyan-400',
+    bezelClass: 'bg-slate-900 border-indigo-500/40',
+    emoji: 'theme_neon',
+    swatches: ['#020617', '#312e81', '#22d3ee'],
+    tag: 'Synthwave'
   },
   galaxy: {
-    bgClass: 'bg-slate-950 bg-[url("https://www.transparenttextures.com/patterns/stardust.png")]',
-    cardBg: 'bg-slate-900/95 backdrop-blur-xl border-amber-500/40 text-slate-100 shadow-[0_0_20px_rgba(245,158,11,0.1)]',
-    headerBg: 'bg-slate-900/90 backdrop-blur-xl border-amber-500/50 text-amber-100 shadow-[0_0_15px_rgba(245,158,11,0.15)]',
-    textPrimary: 'text-slate-100',
-    textSecondary: 'text-slate-300',
-    borderColor: 'border-amber-500/40',
-    bentoBg: 'bg-slate-900/80 border-amber-500/30',
-    buttonClass: 'bg-amber-600 hover:bg-amber-500 text-white shadow-[0_0_10px_rgba(245,158,11,0.4)] border-amber-500',
+    bgClass: 'bg-zinc-950',
+    cardBg: 'bg-zinc-900 border-amber-500/50 text-amber-50 shadow-sm',
+    headerBg: 'bg-zinc-900 border-amber-500/50 text-amber-100 shadow-sm',
+    textPrimary: 'text-amber-50',
+    textSecondary: 'text-amber-200/80',
+    borderColor: 'border-amber-500/50',
+    bentoBg: 'bg-zinc-900 border-amber-500/40',
+    buttonClass: 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-400',
     accentText: 'text-amber-400 font-extrabold',
-    inputClass: 'bg-slate-900/80 border-amber-500/40 text-white focus:border-amber-400 focus:shadow-[0_0_10px_rgba(245,158,11,0.2)]',
-    bezelClass: 'bg-slate-950/80 border-amber-500/30',
-    emoji: 'trending_up'
+    inputClass: 'bg-zinc-800 border-amber-500/50 text-white focus:border-amber-400',
+    bezelClass: 'bg-zinc-900 border-amber-500/40',
+    emoji: 'theme_galaxy',
+    swatches: ['#09090b', '#27272a', '#facc15'],
+    tag: 'Élite Bursátil'
   },
   volcano: {
-    bgClass: 'bg-red-950 bg-[radial-gradient(ellipse_at_bottom,_var(--tw-gradient-stops))] from-red-950 via-orange-950 to-black',
-    cardBg: 'bg-orange-950/90 backdrop-blur-xl border-orange-700/50 text-orange-100 shadow-[0_0_20px_rgba(234,88,12,0.15)]',
-    headerBg: 'bg-orange-950/90 backdrop-blur-xl border-orange-700/60 text-orange-200 shadow-[0_0_15px_rgba(234,88,12,0.15)]',
-    textPrimary: 'text-orange-100',
-    textSecondary: 'text-orange-200',
-    borderColor: 'border-orange-700/50',
-    bentoBg: 'bg-orange-950/70 border-orange-700/40',
-    buttonClass: 'bg-orange-600 hover:bg-orange-500 text-white shadow-[0_0_10px_rgba(234,88,12,0.4)] border-orange-500',
-    accentText: 'text-red-400 font-extrabold',
-    inputClass: 'bg-red-950/80 border-orange-700/50 text-white focus:border-orange-500 focus:shadow-[0_0_10px_rgba(234,88,12,0.2)]',
-    bezelClass: 'bg-red-950/70 border-orange-700/30',
-    emoji: '🌋'
+    bgClass: 'bg-stone-950',
+    cardBg: 'bg-stone-900 border-orange-500/50 text-orange-50 shadow-sm',
+    headerBg: 'bg-stone-900 border-orange-500/50 text-orange-100 shadow-sm',
+    textPrimary: 'text-orange-50',
+    textSecondary: 'text-orange-200/80',
+    borderColor: 'border-orange-500/50',
+    bentoBg: 'bg-stone-900 border-orange-500/40',
+    buttonClass: 'bg-orange-600 hover:bg-orange-500 text-white border-orange-400',
+    accentText: 'text-orange-400 font-extrabold',
+    inputClass: 'bg-stone-800 border-orange-500/50 text-white focus:border-orange-400',
+    bezelClass: 'bg-stone-900 border-orange-500/40',
+    emoji: 'theme_volcano',
+    swatches: ['#0c0a09', '#431407', '#f97316'],
+    tag: 'Magma'
   },
   forest: {
-    bgClass: 'bg-emerald-950 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-emerald-950 via-teal-950 to-black',
-    cardBg: 'bg-emerald-950/90 backdrop-blur-xl border-emerald-600/50 text-emerald-100 shadow-[0_0_20px_rgba(16,185,129,0.15)]',
-    headerBg: 'bg-emerald-950/90 backdrop-blur-xl border-emerald-600/60 text-emerald-200 shadow-[0_0_15px_rgba(16,185,129,0.15)]',
-    textPrimary: 'text-emerald-100',
-    textSecondary: 'text-emerald-300',
-    borderColor: 'border-emerald-600/50',
-    bentoBg: 'bg-emerald-950/70 border-emerald-600/40',
-    buttonClass: 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_0_10px_rgba(16,185,129,0.4)] border-emerald-500',
-    accentText: 'text-teal-400 font-extrabold',
-    inputClass: 'bg-teal-950/80 border-emerald-600/50 text-white focus:border-emerald-500 focus:shadow-[0_0_10px_rgba(16,185,129,0.2)]',
-    bezelClass: 'bg-teal-950/70 border-emerald-600/30',
-    emoji: 'bank'
+    bgClass: 'bg-emerald-950',
+    cardBg: 'bg-teal-950 border-emerald-500/50 text-emerald-50 shadow-sm',
+    headerBg: 'bg-teal-950 border-emerald-500/50 text-emerald-100 shadow-sm',
+    textPrimary: 'text-emerald-50',
+    textSecondary: 'text-emerald-200/80',
+    borderColor: 'border-emerald-500/50',
+    bentoBg: 'bg-teal-950 border-emerald-500/40',
+    buttonClass: 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400',
+    accentText: 'text-emerald-400 font-extrabold',
+    inputClass: 'bg-emerald-900 border-emerald-500/50 text-white focus:border-emerald-400',
+    bezelClass: 'bg-teal-950 border-emerald-500/40',
+    emoji: 'theme_forest',
+    swatches: ['#022c22', '#064e3b', '#10b981'],
+    tag: 'Reserva Verde'
   }
 };

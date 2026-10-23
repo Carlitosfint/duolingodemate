@@ -31,12 +31,11 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [toastVariant, setToastVariant] = useState<'error' | 'success'>('error');
-  // "¿Olvidaste tu contraseña?" used to email a reset link to whatever was
-  // typed — and said it had, even for a student, whose school address has
-  // no mailbox behind it. Students and staff recover access differently.
   const [forgot, setForgot] = useState<null | 'choose' | 'student' | 'staff' | 'sent'>(null);
   const [resetEmail, setResetEmail] = useState('');
   const [resetSending, setResetSending] = useState(false);
+  const [revealingHole, setRevealingHole] = useState(false);
+  const [fadingUI, setFadingUI] = useState(false);
 
   const circle1Ref = useRef<HTMLDivElement>(null);
   const circle2Ref = useRef<HTMLDivElement>(null);
@@ -83,13 +82,14 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
     }, 200);
 
     setTimeout(() => {
-      if (containerRef.current) containerRef.current.style.zIndex = '20';
+      if (containerRef.current) containerRef.current.style.zIndex = '40';
     }, 400);
   };
 
   const triggerSuccessExpand = () => {
+    setFadingUI(true);
     if (cardRef.current) {
-      cardRef.current.style.transition = 'opacity 0.4s';
+      cardRef.current.style.transition = 'opacity 0.35s ease';
       cardRef.current.style.opacity = '0';
     }
     if (containerRef.current) containerRef.current.style.zIndex = '9999';
@@ -100,12 +100,39 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
     circles.forEach((c, i) => {
       setTimeout(() => {
         if (c) c.classList.add('expand');
-      }, i * 70);
+      }, i * 85);
     });
 
+    // Una vez que el 5.º círculo (azul #000066) cubre la pantalla, se abre un
+    // círculo transparente desde su interior mostrando directamente la pantalla siguiente.
     setTimeout(() => {
-      onLoginSuccess();
-    }, 1400);
+      setRevealingHole(true);
+      const container = containerRef.current;
+      if (!container) {
+        onLoginSuccess();
+        return;
+      }
+      const maxRadius = Math.hypot(window.innerWidth, window.innerHeight) * 1.15;
+      const duration = 850;
+      const start = performance.now();
+
+      const step = (now: number) => {
+        const t = Math.min(1, (now - start) / duration);
+        // Smooth cubic-bezier-like easeInOut
+        const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        const r = eased * maxRadius;
+        const mask = `radial-gradient(circle at 50% 100%, transparent ${r}px, black ${r + 1.5}px)`;
+        container.style.webkitMaskImage = mask;
+        container.style.maskImage = mask;
+        if (t < 1) {
+          requestAnimationFrame(step);
+        } else {
+          onLoginSuccess();
+        }
+      };
+
+      requestAnimationFrame(step);
+    }, 1050);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -142,8 +169,6 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
       await sendPasswordResetEmail(auth, target);
       setForgot('sent');
     } catch (err: any) {
-      // A wrong or unknown address gets the same answer as a right one, for
-      // the same reason the login does.
       if (err?.code === 'auth/user-not-found') setForgot('sent');
       else showMessage(getAuthErrorMessage(err?.code));
     } finally {
@@ -152,7 +177,10 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
   };
 
   return (
-    <div className="login-wrapper min-h-screen w-full flex items-center justify-center relative overflow-hidden font-sans" style={{ backgroundColor: '#f8fafc' }}>
+    <div
+      className={`${revealingHole ? '' : 'login-wrapper'} fixed inset-0 w-full flex items-center justify-center overflow-hidden font-sans z-[9999]`}
+      style={{ backgroundColor: revealingHole ? 'transparent' : '#f8fafc', pointerEvents: fadingUI ? 'none' : 'auto' }}
+    >
       <style>{`
         .login-wrapper {
           background-image:
@@ -166,25 +194,29 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
         .login-glass-card {
           background: #ffffff;
           border: 1px solid #e2e8f0;
-          box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.05);
+          box-shadow: 0 12px 44px -10px rgba(15, 23, 42, 0.08);
           animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
           opacity: 0;
           transform: translateY(40px);
         }
 
-        .login-wrapper .circle {
+        .circle {
+          position: absolute; bottom: 0; left: 50%; border-radius: 50%;
           transform: translate(-50%, 150%);
           animation: popUpCircle 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
         }
+
+        .login-side-note {
+          opacity: 0;
+          animation: fadeNote 0.6s ease-out 0.7s forwards;
+        }
+        @keyframes fadeNote { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 
         @keyframes slideUp { to { opacity: 1; transform: translateY(0); } }
         @keyframes popUpCircle { to { transform: translate(-50%, 50%); } }
 
         .circles-container {
-          position: fixed; bottom: 0; left: 50%; z-index: 40; pointer-events: none;
-        }
-        .circle {
-          position: absolute; bottom: 0; left: 0; border-radius: 50%;
+          position: fixed; inset: 0; z-index: 40; pointer-events: none; overflow: hidden;
         }
         .circle-1 { width: 350px; height: 350px; background-color: #ffcc00; animation-delay: 0.2s; }
         .circle-2 { width: 310px; height: 310px; background-color: #ff6600; animation-delay: 0.3s; }
@@ -193,7 +225,7 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
         .circle-5 { width: 190px; height: 190px; background-color: #000066; animation-delay: 0.6s; }
 
         .circle.expand {
-          animation: expandCircle 1s cubic-bezier(0.65, 0, 0.35, 1) forwards !important;
+          animation: expandCircle 0.95s cubic-bezier(0.65, 0, 0.35, 1) forwards !important;
         }
         @keyframes expandCircle {
           from { transform: translate(-50%, 50%) scale(1); }
@@ -235,8 +267,12 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
         }
       `}</style>
 
-      <div className="floating-blob blob-1 rounded-full"></div>
-      <div className="floating-blob blob-2 rounded-full"></div>
+      {!revealingHole && (
+        <>
+          <div className="floating-blob blob-1 rounded-full"></div>
+          <div className="floating-blob blob-2 rounded-full"></div>
+        </>
+      )}
 
       {/* Toast Notification */}
       <div className={`toast-notification px-6 py-4 rounded-xl shadow-lg flex items-center gap-3 border ${
@@ -254,16 +290,19 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
         <div ref={circle5Ref} className="circle circle-5"></div>
       </div>
 
-      <div className="w-full max-w-md px-6 relative z-30">
-        <div ref={cardRef} className="login-glass-card rounded-[2rem] px-10 pt-10 pb-[200px] relative overflow-hidden z-30 bg-white">
+      {/* Cuadro blanco alargado hacia abajo (pb-28 / pb-32) pero desplazado un poco hacia arriba (-mt-6)
+          para que el botón Iniciar Sesión quede arriba y los 5 círculos (z-40) se superpongan
+          sobre la base del cuadro blanco (z-30), logrando el efecto escalonado. */}
+      <div className="w-full max-w-md px-6 -mt-6 relative z-30">
+        <div ref={cardRef} className="login-glass-card rounded-[2rem] px-8 sm:px-10 pt-7 pb-28 sm:pb-32 relative overflow-hidden z-30 bg-white">
           <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-slate-50 to-transparent rounded-bl-full pointer-events-none"></div>
 
-          <div className="text-center mb-10">
-            <div className="flex items-center justify-center mb-6">
-              <img src="/img/logo_colegio.png" alt="Logo Colegio" className="h-28 w-auto object-contain" />
+          <div className="text-center mb-6">
+            <div className="flex items-center justify-center mb-3">
+              <img src="/img/logo_colegio.png" alt="Logo Colegio" className="h-20 w-auto object-contain" />
             </div>
-            <h1 className="text-[32px] text-slate-900 mb-2 font-black tracking-tight">Bienvenido</h1>
-            <p className="text-slate-500 text-sm font-medium">Ingresa tus credenciales para continuar</p>
+            <h1 className="text-[30px] text-slate-900 mb-0.5 font-black tracking-tight">Bienvenido</h1>
+            <p className="text-slate-500 text-sm font-medium">Inicia sesión</p>
           </div>
 
           {forgot ? (
@@ -354,7 +393,7 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
             </div>
           ) : (
           <form onSubmit={handleSubmit}>
-            <div className="space-y-6">
+            <div className="space-y-5">
               <div>
                 <label htmlFor="login-email" className="block text-[11px] text-slate-500 mb-2 tracking-widest uppercase font-bold">CORREO ELECTRÓNICO</label>
                 <div className="relative">
@@ -411,7 +450,7 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
                   </button>
                 </div>
               </div>
-              <div className="pt-4">
+              <div className="pt-2">
                 <button
                   type="submit"
                   disabled={loading}
@@ -424,24 +463,51 @@ export const ColegioLogin: React.FC<{ onLoginSuccess: () => void; onRegisterScho
           </form>
           )}
 
-          <div className="mt-6 pt-6 border-t border-slate-100 text-center space-y-2">
-            <p className="text-xs text-slate-400 font-medium">
-              ¿No tienes cuenta? Pídele a secretaría de tu colegio que te la cree.
-            </p>
-            <p className="text-xs text-slate-400 font-medium">
-              ¿Tu colegio aún no está en la plataforma?{' '}
-              <button
-                type="button"
-                onClick={onRegisterSchool}
-                className="text-blue-500 hover:text-blue-700 font-bold underline underline-offset-2"
-              >
-                Regístralo aquí
+          {/* En móvil se muestra justo debajo del botón y por encima de la zona donde pisan los círculos */}
+          <div className="md:hidden mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 gap-3 text-left">
+            <div>
+              <p className="text-[11px] font-black text-slate-700">¿Sin cuenta?</p>
+              <p className="text-[11px] text-slate-400 font-medium leading-snug">Pídela en secretaría.</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[11px] font-black text-slate-700">¿Tu colegio?</p>
+              <button type="button" onClick={onRegisterSchool} className="text-[11px] text-blue-600 font-bold hover:underline underline-offset-2">
+                Regístralo →
               </button>
-            </p>
+            </div>
           </div>
 
         </div>
       </div>
+
+      {/* Notas de escritorio: izquierda y derecha, lejos de los círculos */}
+      {!fadingUI && (
+        <>
+          <div className="hidden md:flex login-side-note fixed bottom-8 left-8 z-30 items-center gap-3 bg-white/90 backdrop-blur border border-slate-200 rounded-2xl pl-3 pr-5 py-3 shadow-sm max-w-[280px]">
+            <span className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+              <Icon name="user" size={20} />
+            </span>
+            <div>
+              <p className="text-sm font-black text-slate-800 leading-tight">¿No tienes cuenta?</p>
+              <p className="text-xs text-slate-500 font-medium leading-snug">Pídesela a secretaría de tu colegio.</p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onRegisterSchool}
+            className="hidden md:flex login-side-note group fixed bottom-8 right-8 z-30 items-center gap-3 bg-white/90 backdrop-blur border border-slate-200 hover:border-blue-300 hover:shadow-md rounded-2xl pl-3 pr-5 py-3 shadow-sm max-w-[300px] text-left transition-all"
+          >
+            <span className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+              <Icon name="teacher" size={20} />
+            </span>
+            <div>
+              <p className="text-sm font-black text-slate-800 leading-tight">¿Tu colegio no está aquí?</p>
+              <p className="text-xs text-blue-600 font-bold leading-snug group-hover:underline underline-offset-2">Regístralo aquí →</p>
+            </div>
+          </button>
+        </>
+      )}
     </div>
   );
 };

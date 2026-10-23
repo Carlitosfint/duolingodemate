@@ -1,5 +1,4 @@
 import { DictLabContent } from "./DictLabContent";
-
 import { Icon } from './CustomIcons';
 import React, { useState, useEffect } from 'react';
 import { Card, Button } from './UI';
@@ -12,9 +11,10 @@ interface DictLabModalProps {
 }
 
 export const DictLabModal: React.FC<DictLabModalProps> = ({ onClose, isInline, activeCourse }) => {
+  const [bimestre, setBimestre] = useState<'3' | '4'>('3');
   const [activeTab, setActiveTab] = useState<string>('');
 
-  const allTabs: any = {
+  const allTabsBim3: Record<string, { id: string; label: string; icon: string }[]> = {
     razonamiento_5to: [
       { id: 'edades', label: 'Edades', icon: '👨‍👦' },
       { id: 'cronometria', label: 'Cronometría', icon: '⏳' },
@@ -46,12 +46,45 @@ export const DictLabModal: React.FC<DictLabModalProps> = ({ onClose, isInline, a
     ]
   };
 
-  const currentTabs = allTabs[activeCourse as string] || allTabs.razonamiento;
-  const tabOrder = currentTabs.map((t: any) => t.id);
+  const allTabsBim4: Record<string, { id: string; label: string; icon: string }[]> = {
+    razonamiento_5to: [
+      { id: 'analisis_combinatorio', label: 'Análisis Combinatorio', icon: '🔢' },
+      { id: 'probabilidades', label: 'Probabilidades', icon: '🎲' },
+      { id: 'sucesiones_series_5to', label: 'Sucesiones y Series', icon: '📈' },
+      { id: 'logaritmos_rm', label: 'Operadores y Log.', icon: '🧮' },
+      { id: 'maximos_minimos', label: 'Máximos y Mínimos', icon: '⛰️' },
+      { id: 'suficiencia_datos', label: 'Suficiencia de Datos', icon: '⚖️' }
+    ],
+    trigonometria: [
+      { id: 'reduccion_primer_cuadrante', label: 'Reducción 1er Cuad.', icon: '🧭' },
+      { id: 'circunferencia_trigonometrica', label: 'Circunferencia Trig.', icon: '⭕' },
+      { id: 'identidades_trigonometricas', label: 'Identidades Trig.', icon: '⚡' },
+      { id: 'angulos_compuestos', label: 'Ángulos Compuestos', icon: '➕' },
+      { id: 'angulo_doble', label: 'Ángulo Doble y Mitad', icon: '✌️' }
+    ],
+    razonamiento: [
+      { id: 'sucesiones', label: 'Sucesiones y Analogías', icon: '🔗' },
+      { id: 'series', label: 'Series y Sumatorias', icon: '➕' },
+      { id: 'operadores', label: 'Operadores Matemáticos', icon: '⚙️' },
+      { id: 'fracciones_rm', label: 'Fracciones y %', icon: '📊' },
+      { id: 'certezas', label: 'Certezas y Conteo', icon: '🎯' }
+    ],
+    geometria_5to: [
+      { id: 'prisma_cilindro', label: 'Prisma y Cilindro', icon: '🏛️' },
+      { id: 'piramide_cono', label: 'Pirámide y Cono', icon: '🔺' },
+      { id: 'esfera_teoremas', label: 'Esfera y Pappus', icon: '🌐' },
+      { id: 'recta_circunferencia', label: 'Recta y Circunf.', icon: '📈' },
+      { id: 'parabola_elipse', label: 'Parábola y Elipse', icon: '🪐' }
+    ]
+  };
+
+  const activeMap = bimestre === '3' ? allTabsBim3 : allTabsBim4;
+  const currentTabs = activeMap[activeCourse as string] || activeMap.razonamiento;
+  const tabOrder = currentTabs.map((t) => t.id);
 
   useEffect(() => {
     setActiveTab(tabOrder[0]);
-  }, [activeCourse]);
+  }, [activeCourse, bimestre]);
 
   if (!activeTab && tabOrder.length > 0) setActiveTab(tabOrder[0]);
 
@@ -76,27 +109,43 @@ export const DictLabModal: React.FC<DictLabModalProps> = ({ onClose, isInline, a
   const content = (
     <Card className={`w-full ${isInline ? 'h-full border-0 rounded-none bg-transparent shadow-none p-4 md:p-6' : 'max-w-4xl max-h-[90vh] md:max-h-[85vh] border-4 border-indigo-500 bg-white !p-4 md:!p-6'} flex flex-col overflow-hidden`}>
       {/* Header */}
-      <div className="w-full flex justify-between items-center mb-4 md:mb-6 shrink-0 border-b-2 border-indigo-100 pb-4">
+      <div className="w-full flex flex-wrap justify-between items-center gap-3 mb-4 shrink-0 border-b-2 border-indigo-100 pb-4">
         <div className="flex items-center gap-3">
-          <span className="text-4xl md:text-5xl drop-shadow-sm select-none">📖</span>
+          <span className="text-4xl md:text-5xl select-none">📖</span>
           <div className="text-left">
             <h3 className="text-xl md:text-3xl font-black text-indigo-700 leading-tight">Códice de Fórmulas</h3>
             <p className="text-[10px] md:text-sm font-bold text-slate-500 uppercase tracking-widest mt-1">Repaso Teórico y Trucos ✨</p>
           </div>
         </div>
-        {!isInline && onClose && (
-          <button
+        <div className="flex items-center gap-2">
+          <div className="flex bg-slate-100 p-1 rounded-xl border-2 border-slate-200">
+            <button
+              onClick={() => setBimestre('3')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${bimestre === '3' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:text-indigo-700'}`}
+            >
+              III Bimestre
+            </button>
+            <button
+              onClick={() => setBimestre('4')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${bimestre === '4' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:text-indigo-700'}`}
+            >
+              IV Bimestre
+            </button>
+          </div>
+          {!isInline && onClose && (
+            <button
               onClick={onClose}
               className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-red-500 flex items-center justify-center font-black transition-colors shadow-sm cursor-pointer border border-slate-200 text-lg md:text-xl shrink-0"
-          >
-            ×
-          </button>
-        )}
+            >
+              ×
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Tabs Selector */}
       <div className="w-full flex bg-slate-100 p-1.5 rounded-2xl mb-4 md:mb-6 overflow-x-auto shrink-0 no-scrollbar gap-1 custom-scrollbar">
-        {currentTabs.map((tab: any) => {
+        {currentTabs.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
             <button
@@ -155,7 +204,7 @@ export const DictLabModal: React.FC<DictLabModalProps> = ({ onClose, isInline, a
     </Card>
   );
 
-    if (isInline) return content;
+  if (isInline) return content;
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 z-[300] flex items-center justify-center p-4 backdrop-blur-md animate-pop">

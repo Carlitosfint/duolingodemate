@@ -132,15 +132,17 @@ const CIRCLE_COLORS = ['#FFD700', '#FF8C00', '#DC143C', '#8B008B', '#000080'];
 const TabTransition: React.FC<{ children: React.ReactNode, type?: string, zIndexOffset?: number }> = ({ children, zIndexOffset = 0 }) => {
   const [isPresent, safeToRemove] = usePresence();
   
+  const isFirstRenderRef = React.useRef(true);
   React.useEffect(() => {
     if (!isPresent) {
        playTransitionSound();
-       // Debe cubrir toda la pantalla antes de desmontar: última barra
-       // termina a los (4*0.05 + 0.4)s = 0.6s, con margen de sobra.
-       const timer = setTimeout(() => { safeToRemove && safeToRemove(); }, 650);
+       const timer = setTimeout(() => { safeToRemove && safeToRemove(); }, 1000);
        return () => clearTimeout(timer);
     } else {
-       playRevealSound();
+       if (!isFirstRenderRef.current) {
+         playRevealSound();
+       }
+       isFirstRenderRef.current = false;
     }
   }, [isPresent, safeToRemove]);
 
@@ -156,7 +158,7 @@ const TabTransition: React.FC<{ children: React.ReactNode, type?: string, zIndex
                 key={`blocks-${color}`}
                 initial={{ y: isPresent ? '0%' : '100%' }}
                 animate={{ y: isPresent ? '-100%' : '0%' }}
-                transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1], delay: isPresent ? i * 0.05 : (4 - i) * 0.05 }}
+                transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: isPresent ? i * 0.08 : (4 - i) * 0.08 }}
                 style={{ flex: 1, height: '100%', backgroundColor: color, zIndex: 25 }}
               />
            );
@@ -174,9 +176,9 @@ const TabTransition: React.FC<{ children: React.ReactNode, type?: string, zIndex
   );
 };
 
-export const PageReveal: React.FC<{ children: React.ReactNode, className?: string, isFullScreen?: boolean, bgClass?: string }> = ({ children, className, isFullScreen = false, bgClass = 'bg-slate-50' }) => {
+export const PageReveal: React.FC<{ children: React.ReactNode, className?: string, isFullScreen?: boolean, bgClass?: string, skipInitial?: boolean }> = ({ children, className, isFullScreen = false, bgClass = 'bg-slate-50', skipInitial = false }) => {
   const [isPresent, safeToRemove] = usePresence();
-  const [phase, setPhase] = React.useState(0);
+  const [phase, setPhase] = React.useState(skipInitial ? 5 : 0);
   
   // Store click coordinates relative to viewport
   const [clickPos] = React.useState(() => ({ x: globalLastClick.x, y: globalLastClick.y }));
@@ -217,36 +219,37 @@ export const PageReveal: React.FC<{ children: React.ReactNode, className?: strin
        // Exiting component: wait until entering animation completes
        const timer = setTimeout(() => {
          safeToRemove && safeToRemove();
-       }, 1000);
+       }, 3500);
        return () => clearTimeout(timer);
     }
 
-    // Entering component animation sequence. This plays on every map<->exercise
-    // switch, so it's tuned for ~4x faster than the original cut while keeping
-    // the same lens choreography (open old, close, open new, expand, settle).
+    if (skipInitial) {
+      setPhase(5);
+      return;
+    }
 
-    // Phase 1: Lens opens showing old page. Starts immediately alongside the circles.
+    // Phase 1: Lens opens showing old page
     playTransitionSound();
     circleRadii.forEach((r, i) => {
       animate(r, radii.base - i * radii.step, {
-         duration: 0.2,
-         delay: i * 0.03,
+         duration: 0.4,
+         delay: i * 0.05,
          ease: [0.34, 1.56, 0.64, 1]
        });
     });
-    animate(holeRadius, 50, { duration: 0.2, ease: "easeInOut" }); // 50px = ~12vmin
+    animate(holeRadius, 50, { duration: 0.4, ease: "easeInOut" });
 
     // Phase 2: Lens closes
     const t2 = setTimeout(() => {
-      animate(holeRadius, 0, { duration: 0.15, ease: "easeInOut" });
-    }, 450);
+      animate(holeRadius, 0, { duration: 0.3, ease: "easeInOut" });
+    }, 1900);
 
     // Phase 3: Lens opens showing NEW page
     const t3 = setTimeout(() => {
       playRevealSound();
-      animate(holeRadius, 50, { duration: 0.15, ease: "easeInOut" });
-      animate(pageRadius, 50, { duration: 0.15, ease: "easeInOut" });
-    }, 520);
+      animate(holeRadius, 50, { duration: 0.3, ease: "easeInOut" });
+      animate(pageRadius, 50, { duration: 0.3, ease: "easeInOut" });
+    }, 2200);
 
     // Phase 4: Expand to full screen
     const t4 = setTimeout(() => {
@@ -254,19 +257,19 @@ export const PageReveal: React.FC<{ children: React.ReactNode, className?: strin
       const maxR = Math.max(window.innerWidth, window.innerHeight) * 1.5;
 
       circleRadii.forEach((r) => {
-        animate(r, maxR, { duration: 0.25, ease: [0.64, 0, 0.78, 0] });
+        animate(r, maxR, { duration: 0.6, ease: [0.64, 0, 0.78, 0] });
       });
-      animate(holeRadius, maxR, { duration: 0.25, ease: [0.64, 0, 0.78, 0] });
-      animate(pageRadius, maxR, { duration: 0.25, ease: [0.64, 0, 0.78, 0] });
-    }, 620);
+      animate(holeRadius, maxR, { duration: 0.6, ease: [0.64, 0, 0.78, 0] });
+      animate(pageRadius, maxR, { duration: 0.6, ease: [0.64, 0, 0.78, 0] });
+    }, 2600);
 
     // Phase 5: Clean up, make interactive
     const t5 = setTimeout(() => {
       setPhase(5);
-    }, 900);
+    }, 3200);
 
     return () => { clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); clearTimeout(t5); };
-  }, [isPresent, safeToRemove, holeRadius, pageRadius, radii, ...circleRadii]);
+  }, [isPresent, safeToRemove, skipInitial, holeRadius, pageRadius, radii, ...circleRadii]);
 
   const currentZ = !isPresent ? 0 : (phase >= 5 ? 10 : 9999);
   
@@ -699,6 +702,13 @@ export default function App() {
   const [showProfile, setShowProfile] = useState(false);
   const [showChallenges, setShowChallenges] = useState(false);
   const [viewMode, setViewMode] = useState<'map' | 'practice' | 'infinite_map' | 'exercise' | 'codice' | 'album' | 'shop' | 'mistakes' | 'profile' | 'teacher' | 'teacher_dash'>('map');
+  const [shopTab, setShopTab] = useState<'powers' | 'chests' | 'themes'>('powers');
+  const hasEnteredExerciseRef = useRef(false);
+  useEffect(() => {
+    if (viewMode === 'exercise') {
+      hasEnteredExerciseRef.current = true;
+    }
+  }, [viewMode]);
   const isStaff = user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'secretary';
 
   // El personal (profesor/secretario/admin) aterriza directo en su panel,
@@ -728,27 +738,14 @@ export default function App() {
   
   const setActiveCourse = setSelectedCourse;
 
-// Verify problem type matches user progress once user loads
+// Regenerate problem when entering exercise from the main map
   useEffect(() => {
     if (user && viewMode === 'exercise' && !selectedTopic) {
       const pLevel = getCourseProgress(activeCourse, user);
-      let expectedType = '';
-      if (activeCourse === 'trigonometria') {
-        expectedType = pLevel < 20 ? 'Propiedades de las RT' : pLevel < 40 ? 'Resolución de Triángulos' : pLevel < 60 ? 'Ángulos Verticales' : pLevel < 80 ? 'Intro Geometría Analítica' : 'Ángulos en Posición Normal';
-      } else if (activeCourse === 'geometria_5to') {
-        expectedType = pLevel < 20 ? 'Relaciones Métricas' : pLevel < 40 ? 'Áreas de Regiones' : pLevel < 60 ? 'Superficies Circulares' : pLevel < 80 ? 'Geometría del Espacio' : 'Sólidos y Poliedros';
-      } else if (activeCourse === 'razonamiento_5to') {
-        expectedType = pLevel < 17 ? 'Edades' : pLevel < 34 ? 'Cronometría' : pLevel < 51 ? 'Lógica Inferencial' : pLevel < 68 ? 'Fracciones y Mezclas' : pLevel < 85 ? 'Mate Financiera' : 'Planteo de Ecuaciones';
-      } else {
-        expectedType = pLevel < 20 ? 'Métodos Operativos' : pLevel < 40 ? 'Criptoaritmética' : pLevel < 60 ? 'Lógica Recreativa' : pLevel < 80 ? 'Cronometría Básica' : 'Conteo de Figuras';
-      }
-      
-      if (currentProblem?.data && currentProblem.data.type !== expectedType) {
-         const prob = generateMathProblem(false, null, pLevel, activeCourse);
-         setCurrentProblem({ data: prob, solved: false, timestamp: Date.now() });
-      }
+      const prob = generateMathProblem(false, null, pLevel, activeCourse);
+      setCurrentProblem({ data: prob, solved: false, timestamp: Date.now() });
     }
-  }, [user?.progress, viewMode, selectedTopic]);
+  }, [user?.progress, viewMode, selectedTopic, activeCourse]);
   const [expandedChallenges, setExpandedChallenges] = useState(false);
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [showTeacherModal, setShowTeacherModal] = useState(false);
@@ -1057,16 +1054,31 @@ export default function App() {
     setTimeout(() => setPromoFeedback(""), 4000);
   };
 
-  // Theme buying with confirmation preview
+  // Direct Theme equip or purchase in the Shop
   const handleThemeClick = (t: any) => {
     if (!user) return;
     const purchased = purchasedThemes.includes(t.id);
-    playClickSound();
-    setPreviewTheme({ 
-      id: t.id, 
-      price: purchased ? 0 : t.price, 
-      isAlreadyPurchased: purchased 
-    });
+    if (purchased) {
+      setActiveTheme(t.id);
+      setPreviewTheme(null);
+      localStorage.setItem('fin_theme', t.id);
+      playClickSound();
+      showToast(`Tema "${t.name}" equipado.`, 'info');
+      return;
+    }
+    if (user.coins >= t.price) {
+      setUser(prev => prev ? { ...prev, coins: prev.coins - t.price } : null);
+      setCoinsSpent(prev => prev + t.price);
+      setPurchasedThemes(prev => [...prev, t.id]);
+      setActiveTheme(t.id);
+      setPreviewTheme(null);
+      localStorage.setItem('fin_theme', t.id);
+      playRainbowSound();
+      showToast(`¡Compraste y equipaste el tema "${t.name}"!`, 'info');
+    } else {
+      playErrorAlertSound();
+      showToast('No tienes suficientes monedas para este estilo.');
+    }
   };
 
   const confirmThemePurchase = () => {
@@ -1620,57 +1632,77 @@ export default function App() {
     );
   }
 
-  if (showLoginScreen) {
-    return showRegisterScreen
-      ? <Suspense fallback={<Loading />}><SchoolRegister onBackToLogin={() => setShowRegisterScreen(false)} /></Suspense>
-      : <ColegioLogin onLoginSuccess={() => setShowLoginScreen(false)} onRegisterSchool={() => setShowRegisterScreen(true)} />;
+  if (showLoginScreen && showRegisterScreen) {
+    return <Suspense fallback={<Loading />}><SchoolRegister onBackToLogin={() => setShowRegisterScreen(false)} /></Suspense>;
+  }
+
+  const loginOverlay = showLoginScreen ? (
+    <ColegioLogin
+      key="colegio-login-overlay"
+      onLoginSuccess={() => setShowLoginScreen(false)}
+      onRegisterSchool={() => setShowRegisterScreen(true)}
+    />
+  ) : null;
+
+  if (!authUser && showLoginScreen) {
+    return <>{loginOverlay}</>;
   }
 
   if (platformAdmin) {
-    return <Suspense fallback={<Loading />}><PlatformConsole email={platformAdmin.email} onLogout={handleLogout} /></Suspense>;
+    return <>{loginOverlay}<Suspense fallback={<Loading />}><PlatformConsole email={platformAdmin.email} onLogout={handleLogout} /></Suspense></>;
   }
 
   if (profileLoadError) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-slate-50 p-6">
-        <div className="max-w-sm text-center space-y-4">
-          <p className="font-bold text-slate-700">{profileLoadError}</p>
-          <button
-            onClick={() => { setProfileLoadError(null); handleLogout(); }}
-            className="text-blue-600 hover:text-blue-700 font-bold underline underline-offset-2 text-sm"
-          >
-            Cerrar sesión e intentar con otra cuenta
-          </button>
+      <>
+        {loginOverlay}
+        <div className="min-h-screen w-full flex items-center justify-center bg-slate-50 p-6">
+          <div className="max-w-sm text-center space-y-4">
+            <p className="font-bold text-slate-700">{profileLoadError}</p>
+            <button
+              onClick={() => { setProfileLoadError(null); handleLogout(); }}
+              className="text-blue-600 hover:text-blue-700 font-bold underline underline-offset-2 text-sm"
+            >
+              Cerrar sesión e intentar con otra cuenta
+            </button>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   if (mustChangePassword && authUser?.email) {
     return (
-      <ChangePasswordForm
-        mode="forced"
-        email={authUser.email}
-        dni={accountDni}
-        onDone={() => {
-          setMustChangePassword(false);
-          showToast('Listo: ya tienes tu propia contraseña.', 'info');
-        }}
-        onCancel={handleLogout}
-      />
+      <>
+        {loginOverlay}
+        <ChangePasswordForm
+          mode="forced"
+          email={authUser.email}
+          dni={accountDni}
+          onDone={() => {
+            setMustChangePassword(false);
+            showToast('Listo: ya tienes tu propia contraseña.', 'info');
+          }}
+          onCancel={handleLogout}
+        />
+      </>
     );
   }
 
   if (!user) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-slate-50">
-        <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-      </div>
+      <>
+        {loginOverlay}
+        <div className="min-h-screen w-full flex items-center justify-center bg-slate-50">
+          <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+        </div>
+      </>
     );
   }
 
   return (
     <>
+      {loginOverlay}
       <AnimatePresence>
         {/* Choosing an animal avatar is part of the student game; a teacher
             signing in for the first time shouldn't be greeted with it. */}
@@ -1758,9 +1790,9 @@ export default function App() {
         </div>
       )}
 
-      <AnimatePresence>
+      <AnimatePresence initial={false}>
       {viewMode !== 'exercise' ? (
-        <PageReveal key="main-app" bgClass={currentThemeStyle.bgClass} className="max-w-[1600px] xl:max-w-[1850px] w-full px-4 lg:px-6 xl:px-10 mx-auto flex flex-col lg:flex-row landscape:flex-row gap-4 lg:gap-6 landscape:gap-3 h-[calc(100vh-2rem)] z-30 relative landscape-mini">
+        <PageReveal key="main-app" skipInitial={!hasEnteredExerciseRef.current} bgClass={currentThemeStyle.bgClass} className="max-w-[1600px] xl:max-w-[1850px] w-full px-4 lg:px-6 xl:px-10 mx-auto flex flex-col lg:flex-row landscape:flex-row gap-4 lg:gap-6 landscape:gap-3 h-[calc(100vh-2rem)] z-30 relative landscape-mini">
            
            {/* Left Navigation Sidebar */}
            <div className={`nav-sidebar hidden lg:flex landscape:flex flex-col w-64 landscape:max-lg:w-44 h-fit rounded-[2.5rem] p-6 landscape:max-lg:p-4 border-2 shadow-sm relative overflow-hidden ${currentThemeStyle.cardBg}`}>
@@ -1801,46 +1833,54 @@ export default function App() {
 
            {/* Main Content Area */}
            <div className={`flex-1 rounded-[2.5rem] border-2 md:border-[3px] shadow-[inset_0_2px_10px_rgba(0,0,0,0.03)] relative overflow-hidden flex flex-col ${currentThemeStyle.bentoBg}`}>
-              <AnimatePresence mode="wait">
+              <AnimatePresence initial={false} mode="wait">
               {viewMode === 'map' && (<TabTransition type="swipe" key="map">
                 <div key="map" className="flex-1 flex flex-col h-full relative z-10">
                   <div className={`p-4 border-b-2 z-50 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm relative ${currentThemeStyle.headerBg}`}>
                      <div>
-                       <h3 className={`font-black uppercase tracking-widest text-sm ${currentThemeStyle.textPrimary}`}>Etapa {Math.floor(progress/20) + 1}</h3>
-                       <p className="text-xs font-bold text-slate-500">
+                       <div className="flex items-center gap-2">
+                         <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest text-white ${progress < 50 ? 'bg-blue-600' : 'bg-violet-600'}`}>
+                           {progress < 50 ? 'III Bimestre' : 'IV Bimestre'}
+                         </span>
+                         <h3 className={`font-black uppercase tracking-widest text-sm ${currentThemeStyle.textPrimary}`}>Etapa {Math.floor(progress/20) + 1} • Nivel {progress + 1}</h3>
+                       </div>
+                       <p className="text-xs font-bold text-slate-500 mt-0.5">
                          {activeCourse === 'trigonometria' ? (
-                           progress < 20 ? 'Propiedades de las RT' : progress < 40 ? 'Resolución de Triángulos' : progress < 60 ? 'Ángulos Verticales' : progress < 80 ? 'Intro Geometría Analítica' : 'Ángulos en Posición Normal'
+                           progress < 10 ? 'Propiedades de las RT' : progress < 20 ? 'Resolución de Triángulos' : progress < 30 ? 'Ángulos Verticales' : progress < 40 ? 'Geometría Analítica' : progress < 50 ? 'Ángulos en Posición Normal' : progress < 60 ? 'Reducción al 1er Cuadrante' : progress < 70 ? 'Circunferencia Trigonométrica' : progress < 80 ? 'Identidades Trigonométricas' : progress < 90 ? 'Ángulos Compuestos' : 'Ángulo Doble y Mitad'
                          ) : activeCourse === 'geometria_5to' ? (
-                           progress < 20 ? 'Relaciones Métricas' : progress < 40 ? 'Áreas de Regiones' : progress < 60 ? 'Superficies Circulares' : progress < 80 ? 'Geometría del Espacio' : 'Sólidos y Poliedros'
+                           progress < 10 ? 'Relaciones Métricas' : progress < 20 ? 'Áreas de Regiones' : progress < 30 ? 'Superficies Circulares' : progress < 40 ? 'Geometría del Espacio' : progress < 50 ? 'Sólidos y Poliedros' : progress < 60 ? 'Prisma y Cilindro' : progress < 70 ? 'Pirámide y Cono' : progress < 80 ? 'Esfera y Pappus-Guldin' : progress < 90 ? 'Recta y Circunferencia' : 'Parábola y Elipse'
                          ) : activeCourse === 'razonamiento_5to' ? (
-                           progress < 17 ? 'Edades' : progress < 34 ? 'Cronometría' : progress < 51 ? 'Lógica Inferencial' : progress < 68 ? 'Fracciones y Mezclas' : progress < 85 ? 'Mate Financiera' : 'Planteo de Ecuaciones'
+                           progress < 9 ? 'Edades' : progress < 17 ? 'Cronometría Avanzada' : progress < 25 ? 'Lógica Inferencial' : progress < 33 ? 'Fracciones y Mezclas' : progress < 42 ? 'Matemática Financiera' : progress < 50 ? 'Planteo de Ecuaciones' : progress < 58 ? 'Análisis Combinatorio' : progress < 67 ? 'Probabilidades' : progress < 75 ? 'Sucesiones y Series' : progress < 83 ? 'Operadores y Logaritmos' : progress < 92 ? 'Máximos y Mínimos' : 'Suficiencia de Datos'
                          ) : (
-                           progress < 20 ? 'Métodos Operativos' : progress < 40 ? 'Criptoaritmética' : progress < 60 ? 'Lógica Recreativa' : progress < 80 ? 'Cronometría Básica' : 'Conteo de Figuras'
+                           progress < 10 ? 'Métodos Operativos' : progress < 20 ? 'Criptoaritmética' : progress < 30 ? 'Lógica Recreativa' : progress < 40 ? 'Cronometría Básica' : progress < 50 ? 'Conteo de Figuras' : progress < 60 ? 'Sucesiones y Analogías' : progress < 70 ? 'Series y Sumatorias' : progress < 80 ? 'Operadores Matemáticos' : progress < 90 ? 'Fracciones y Porcentajes' : 'Certezas y Conteo'
                          )}
                        </p>
                      </div>
                      <button 
                        onClick={() => { playClickSound(); setShowDictLab(true); }}
-                       className="flex items-center gap-2 px-3 py-2 bg-indigo-100 text-indigo-700 hover:bg-indigo-200 font-bold rounded-xl transition-all shadow-sm"
+                       className="flex items-center gap-2 px-3 py-2 bg-indigo-100 text-indigo-700 hover:bg-indigo-200 font-bold rounded-xl transition-all border-2 border-indigo-200 cursor-pointer"
                      >
                        <span className="text-lg md:text-xl">📖</span>
                        <div className="flex flex-col items-start text-left">
-                         <span className="leading-none mb-0.5 text-sm">Códice de Fórmulas</span>
-                         <span className="text-[10px] font-medium opacity-80 leading-none">Repasa teoría y trucos 🧠✨</span>
+                         <span className="leading-none mb-0.5 text-sm font-black">Códice de Fórmulas</span>
+                         <span className="text-[10px] font-bold opacity-80 leading-none">III y IV Bimestre ✨</span>
                        </div>
                      </button>
                      <CourseSelector activeCourse={activeCourse} setActiveCourse={setActiveCourse} user={user} />
                   </div>
                   
                   <div className="flex-1 relative overflow-hidden">
-                                          <ProgressMap progress={progress} onNodeClick={(step) => {
+                    <ProgressMap
+                      progress={progress}
+                      activeCourse={activeCourse}
+                      onNodeClick={(step) => {
                         if (step < progress) {
-                          if ((step + 1) % 3 !== 0 || (step % 20 === 0)) {
+                          if ((step + 1) % 3 !== 0 || (step % 20 === 0) || step === 50) {
                             setSelectedTopic(null);
                             setViewMode('exercise');
                           } else showToast("Ya reclamaste esta recompensa en el pasado.", "info");
                         } else if (step === progress) {
-                          if ((step + 1) % 3 === 0 && (step % 20 !== 0)) { 
+                          if ((step + 1) % 3 === 0 && (step % 20 !== 0) && (step !== 50)) { 
                              const cycle = Math.floor(step / 3);
                              if (cycle % 7 === 0) {
                                setShowShellGame(true);
@@ -1855,7 +1895,8 @@ export default function App() {
                             setViewMode('exercise');
                           }
                         }
-                     }} />
+                      }}
+                    />
                   </div>
                 </div>
               </TabTransition>)}
@@ -1867,22 +1908,52 @@ export default function App() {
                        <h3 className={`font-black uppercase tracking-widest text-sm ${currentThemeStyle.textPrimary}`}>Modo Infinito</h3>
                        <p className="text-xs font-bold text-slate-500">
                          {{
-                           'metodos': 'Métodos Operativos',
-                           'cripto': 'Criptoaritmética',
-                           'logica': 'Lógica Recreativa',
-                           'cronometria': 'Cronometría Básica',
-                           'conteo': 'Conteo de Figuras',
-                           'edades': 'Edades',
-                           'cronometria_avanzada': 'Cronometría Avanzada',
-                           'logica_inferencial': 'Lógica Inferencial',
-                           'mezclas_aleaciones': 'Fracciones y Mezclas',
-                           'matematica_financiera': 'Mate Financiera',
-                           'planteo_ecuaciones': 'Planteo de Ecuaciones',
-                           'propiedades_rt': 'Propiedades de las RT',
-                           'resolucion_triangulos': 'Resolución de Triángulos',
-                           'angulos_verticales': 'Ángulos Verticales',
-                           'geometria_analitica': 'Geometría Analítica',
-                           'angulos_posicion_normal': 'Ángulos en Posición Normal'
+                           // RM Básico III y IV Bimestre
+                           'metodos': 'Métodos Operativos (III Bim.)',
+                           'cripto': 'Criptoaritmética (III Bim.)',
+                           'logica': 'Lógica Recreativa (III Bim.)',
+                           'cronometria': 'Cronometría Básica (III Bim.)',
+                           'conteo': 'Conteo de Figuras (III Bim.)',
+                           'sucesiones': 'Sucesiones y Analogías (IV Bim.)',
+                           'series': 'Series y Sumatorias (IV Bim.)',
+                           'operadores': 'Operadores Matemáticos (IV Bim.)',
+                           'fracciones_rm': 'Fracciones y Porcentajes (IV Bim.)',
+                           'certezas': 'Certezas y Conteo (IV Bim.)',
+                           // RM 5to III y IV Bimestre
+                           'edades': 'Edades (III Bim.)',
+                           'cronometria_avanzada': 'Cronometría Avanzada (III Bim.)',
+                           'logica_inferencial': 'Lógica Inferencial (III Bim.)',
+                           'mezclas_aleaciones': 'Fracciones y Mezclas (III Bim.)',
+                           'matematica_financiera': 'Matemática Financiera (III Bim.)',
+                           'planteo_ecuaciones': 'Planteo de Ecuaciones (III Bim.)',
+                           'analisis_combinatorio': 'Análisis Combinatorio (IV Bim.)',
+                           'probabilidades': 'Probabilidades (IV Bim.)',
+                           'sucesiones_series_5to': 'Sucesiones y Series (IV Bim.)',
+                           'logaritmos_rm': 'Operadores y Logaritmos (IV Bim.)',
+                           'maximos_minimos': 'Máximos y Mínimos (IV Bim.)',
+                           'suficiencia_datos': 'Suficiencia de Datos (IV Bim.)',
+                           // Trigonometría III y IV Bimestre
+                           'propiedades_rt': 'Propiedades de las RT (III Bim.)',
+                           'resolucion_triangulos': 'Resolución de Triángulos (III Bim.)',
+                           'angulos_verticales': 'Ángulos Verticales (III Bim.)',
+                           'geometria_analitica': 'Geometría Analítica (III Bim.)',
+                           'angulos_posicion_normal': 'Ángulos en Posición Normal (III Bim.)',
+                           'reduccion_primer_cuadrante': 'Reducción al 1er Cuadrante (IV Bim.)',
+                           'circunferencia_trigonometrica': 'Circunferencia Trigonométrica (IV Bim.)',
+                           'identidades_trigonometricas': 'Identidades Trigonométricas (IV Bim.)',
+                           'angulos_compuestos': 'Ángulos Compuestos (IV Bim.)',
+                           'angulo_doble': 'Ángulo Doble y Mitad (IV Bim.)',
+                           // Geometría 5to III y IV Bimestre
+                           'relaciones_metricas': 'Relaciones Métricas (III Bim.)',
+                           'areas_regiones': 'Áreas de Regiones Planas (III Bim.)',
+                           'superficies_circulares': 'Superficies Circulares (III Bim.)',
+                           'geometria_espacio': 'Geometría del Espacio (III Bim.)',
+                           'solidos_poliedros': 'Sólidos y Poliedros (III Bim.)',
+                           'prisma_cilindro': 'Prisma y Cilindro (IV Bim.)',
+                           'piramide_cono': 'Pirámide y Cono (IV Bim.)',
+                           'esfera_teoremas': 'Esfera y Pappus-Guldin (IV Bim.)',
+                           'recta_circunferencia': 'Recta y Circunferencia (IV Bim.)',
+                           'parabola_elipse': 'Parábola y Elipse (IV Bim.)'
                          }[selectedTopic] || 'Modo Infinito'}
                        </p>
                      </div>
@@ -1904,6 +1975,7 @@ export default function App() {
                      <ProgressMap 
                        progress={infiniteProgress[selectedTopic] || 0} 
                        isInfiniteMode={true}
+                       activeCourse={activeCourse}
                        totalStepsOverride={200}
                        onNodeClick={(step) => {
                         const curProg = infiniteProgress[selectedTopic] || 0;
@@ -1939,61 +2011,164 @@ export default function App() {
               
               {viewMode === 'practice' && (<TabTransition type="swipe" key="practice">
                 <div key="practice" className="flex-1 flex flex-col h-full relative z-10">
-                  <div className="flex-1 overflow-y-auto p-4 md:p-8 relative bg-slate-50/50">
-                     <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                       <h2 className="text-xl md:text-2xl font-black text-slate-800">Práctica Infinita</h2>
-                       <button 
-                         onClick={() => { playClickSound(); setShowDictLab(true); }}
-                         className="flex items-center gap-2 px-3 py-2 bg-indigo-100 text-indigo-700 hover:bg-indigo-200 font-bold rounded-xl transition-all shadow-sm"
-                       >
-                         <Icon name="book" size={18} />
-                         Códice
-                       </button>
-                       <CourseSelector activeCourse={activeCourse} setActiveCourse={setActiveCourse} user={user} />
-                     </div>
-                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-5xl mx-auto">
-                       {(activeCourse === 'geometria_5to' ? [
-                         { id: 'relaciones_metricas', name: 'Relaciones Métricas', icon: '📐', color: 'bg-rose-500' },
-                         { id: 'areas_regiones', name: 'Áreas de Regiones', icon: '🟦', color: 'bg-fuchsia-500' },
-                         { id: 'superficies_circulares', name: 'Superficies Circulares', icon: '⭕', color: 'bg-pink-500' },
-                         { id: 'geometria_espacio', name: 'Geometría del Espacio', icon: '🧊', color: 'bg-purple-500' },
-                         { id: 'solidos_poliedros', name: 'Sólidos y Poliedros', icon: '🕋', color: 'bg-indigo-500' }
-                       ] : activeCourse === 'trigonometria' ? [
-                         { id: 'propiedades_rt', name: 'Propiedades de las RT', icon: '📐', color: 'bg-indigo-500' },
-                         { id: 'resolucion_triangulos', name: 'Resolución de Triángulos', icon: '📐', color: 'bg-teal-500' },
-                         { id: 'angulos_verticales', name: 'Ángulos Verticales', icon: '👀', color: 'bg-orange-500' },
-                         { id: 'geometria_analitica', name: 'Intro Geometría Analítica', icon: '📍', color: 'bg-cyan-500' },
-                         { id: 'angulos_posicion_normal', name: 'Ángulos en Posición Normal', icon: '🔄', color: 'bg-pink-500' }
-                       ] : activeCourse === 'razonamiento_5to' ? [
-                         { id: 'edades', name: 'Edades', icon: '👨‍👦', color: 'bg-blue-500' },
-                         { id: 'cronometria_avanzada', name: 'Cronometría', icon: '⏳', color: 'bg-sky-500' },
-                         { id: 'logica_inferencial', name: 'Lógica Inferencial', icon: '🧠', color: 'bg-violet-500' },
-                         { id: 'mezclas_aleaciones', name: 'Fracciones y Mezclas', icon: '🧪', color: 'bg-amber-500' },
-                         { id: 'matematica_financiera', name: 'Mate Financiera', icon: '💰', color: 'bg-rose-500' },
-                         { id: 'planteo_ecuaciones', name: 'Planteo de Ecuaciones', icon: '📊', color: 'bg-emerald-500' }
-                       ] : [
-                         { id: 'metodos', name: 'Métodos Operativos', icon: '🧠', color: 'bg-blue-500' },
-                         { id: 'cripto', name: 'Criptoaritmética', icon: '🔢', color: 'bg-emerald-500' },
-                         { id: 'logica', name: 'Lógica Recreativa', icon: '🎲', color: 'bg-amber-500' },
-                         { id: 'cronometria', name: 'Cronometría Básica', icon: '⏱️', color: 'bg-purple-500' },
-                         { id: 'conteo', name: 'Conteo de Figuras', icon: '📐', color: 'bg-rose-500' }
-                       ]).map(topic => (
-                         <div 
-                           key={topic.id} 
-                           onClick={() => {
-                             setSelectedTopic(topic.id);
-                             playClickSound();
-                             setViewMode('infinite_map');
-                           }}
-                           className="bg-white p-4 md:p-5 rounded-3xl border-2 border-slate-200 shadow-sm hover:shadow-md hover:border-slate-300 transition-all cursor-pointer group hover:-translate-y-1 flex flex-col items-center text-center min-w-0"
-                         >
-                            <div className={`w-14 h-14 ${topic.color} rounded-2xl flex items-center justify-center text-3xl shadow-sm mb-4 group-hover:scale-110 transition-transform`}>
-                              {topic.icon}
-                            </div>
-                            <h3 className="font-black text-slate-800 text-base md:text-lg mb-2 leading-tight break-words hyphens-auto w-full">{topic.name}</h3>
-                            <p className="text-xs font-bold text-slate-500">Modo Infinito</p>
+                  <div className="flex-1 overflow-y-auto p-4 md:p-8 relative bg-slate-50">
+                     <div className="max-w-5xl mx-auto">
+                       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 bg-white p-4 md:p-5 rounded-3xl border-2 border-slate-200">
+                         <div>
+                           <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200">
+                             Entrenamiento Libre por Temas
+                           </span>
+                           <h2 className="text-xl md:text-2xl font-black text-slate-900 mt-1">Práctica Infinita</h2>
                          </div>
-                       ))}
+                         <div className="flex flex-wrap items-center gap-3">
+                           <button 
+                             onClick={() => { playClickSound(); setShowDictLab(true); }}
+                             className="flex items-center gap-2 px-3.5 py-2 bg-indigo-600 text-white hover:bg-indigo-500 font-black text-xs uppercase tracking-wider rounded-xl border-b-4 border-indigo-800 transition-all cursor-pointer"
+                           >
+                             <Icon name="book" size={16} />
+                             Códice de Fórmulas
+                           </button>
+                           <CourseSelector activeCourse={activeCourse} setActiveCourse={setActiveCourse} user={user} />
+                         </div>
+                       </div>
+
+                       {(() => {
+                         const courseCurriculum = activeCourse === 'geometria_5to' ? {
+                           bimestre3: [
+                             { id: 'relaciones_metricas', name: 'Relaciones Métricas', sub: 'Triángulos rectángulos y circunferencia', icon: '📐', color: 'bg-rose-500', border: 'border-rose-700' },
+                             { id: 'areas_regiones', name: 'Áreas de Regiones Planas', sub: 'Regiones triangulares y cuadrangulares', icon: '🟦', color: 'bg-fuchsia-500', border: 'border-fuchsia-700' },
+                             { id: 'superficies_circulares', name: 'Superficies Circulares', sub: 'Círculo, sector y corona circular', icon: '⭕', color: 'bg-pink-500', border: 'border-pink-700' },
+                             { id: 'geometria_espacio', name: 'Geometría del Espacio', sub: 'Rectas, planos y teorema de las 3 perpendiculares', icon: '🧊', color: 'bg-purple-500', border: 'border-purple-700' },
+                             { id: 'solidos_poliedros', name: 'Sólidos y Poliedros', sub: 'Teorema de Euler y poliedros regulares', icon: '🎲', color: 'bg-indigo-500', border: 'border-indigo-700' }
+                           ],
+                           bimestre4: [
+                             { id: 'prisma_cilindro', name: 'Prisma y Cilindro', sub: 'Área lateral, total y volumen de rectos', icon: '🏛️', color: 'bg-emerald-500', border: 'border-emerald-700' },
+                             { id: 'piramide_cono', name: 'Pirámide y Cono', sub: 'Apotema piramidal, generatriz y volumen', icon: '🔺', color: 'bg-amber-500', border: 'border-amber-700' },
+                             { id: 'esfera_teoremas', name: 'Esfera y Pappus-Guldin', sub: 'Superficie esférica y sólidos de revolución', icon: '🌐', color: 'bg-cyan-500', border: 'border-cyan-700' },
+                             { id: 'recta_circunferencia', name: 'Recta y Circunferencia', sub: 'Pendiente y ecuación ordinaria en el plano', icon: '📈', color: 'bg-blue-500', border: 'border-blue-700' },
+                             { id: 'parabola_elipse', name: 'Secciones Cónicas: Parábola y Elipse', sub: 'Foco, parámetro focal y lado recto', icon: '🪐', color: 'bg-violet-600', border: 'border-violet-800' }
+                           ]
+                         } : activeCourse === 'trigonometria' ? {
+                           bimestre3: [
+                             { id: 'propiedades_rt', name: 'Propiedades de las R.T.', sub: 'Razones recíprocas y complementarias', icon: '📐', color: 'bg-indigo-500', border: 'border-indigo-700' },
+                             { id: 'resolucion_triangulos', name: 'Resolución de Triángulos', sub: 'Cálculo de lados y área trigonométrica', icon: '📏', color: 'bg-teal-500', border: 'border-teal-700' },
+                             { id: 'angulos_verticales', name: 'Ángulos Verticales', sub: 'Ángulos de elevación y depresión', icon: '👀', color: 'bg-orange-500', border: 'border-orange-700' },
+                             { id: 'geometria_analitica', name: 'Geometría Analítica', sub: 'Distancia entre puntos, punto medio y baricentro', icon: '📍', color: 'bg-cyan-500', border: 'border-cyan-700' },
+                             { id: 'angulos_posicion_normal', name: 'Ángulos en Posición Normal', sub: 'Signos en los cuadrantes y ángulos coterminales', icon: '🔄', color: 'bg-pink-500', border: 'border-pink-700' }
+                           ],
+                           bimestre4: [
+                             { id: 'reduccion_primer_cuadrante', name: 'Reducción al 1er Cuadrante', sub: 'Ángulos mayores de 90° y negativos', icon: '🧭', color: 'bg-blue-600', border: 'border-blue-800' },
+                             { id: 'circunferencia_trigonometrica', name: 'Circunferencia Trigonométrica', sub: 'Líneas seno, coseno y variación analítica', icon: '⭕', color: 'bg-emerald-500', border: 'border-emerald-700' },
+                             { id: 'identidades_trigonometricas', name: 'Identidades Trigonométricas', sub: 'Identidades pitagóricas, por cociente y auxiliares', icon: '⚡', color: 'bg-amber-500', border: 'border-amber-700' },
+                             { id: 'angulos_compuestos', name: 'Ángulos Compuestos', sub: 'Seno, coseno y tangente de la suma y resta', icon: '➕', color: 'bg-purple-600', border: 'border-purple-800' },
+                             { id: 'angulo_doble', name: 'Ángulo Doble y Mitad', sub: 'Fórmulas del arco doble y degradación', icon: '✌️', color: 'bg-rose-500', border: 'border-rose-700' }
+                           ]
+                         } : activeCourse === 'razonamiento_5to' ? {
+                           bimestre3: [
+                             { id: 'edades', name: 'Problemas de Edades', sub: 'Cuadros de tiempos: pasado, presente y futuro', icon: '👨‍👦', color: 'bg-blue-500', border: 'border-blue-700' },
+                             { id: 'cronometria_avanzada', name: 'Cronometría Avanzada', sub: 'Adelantos, atrasos y ángulo entre manecillas', icon: '⏳', color: 'bg-sky-500', border: 'border-sky-700' },
+                             { id: 'logica_inferencial', name: 'Lógica Inferencial', sub: 'Verdades, mentiras y proposiciones lógicas', icon: '🧠', color: 'bg-violet-500', border: 'border-violet-700' },
+                             { id: 'mezclas_aleaciones', name: 'Fracciones y Mezclas', sub: 'Reducción a la unidad y precio medio', icon: '🧪', color: 'bg-amber-500', border: 'border-amber-700' },
+                             { id: 'matematica_financiera', name: 'Matemática Financiera', sub: 'Variación porcentual e interés simple', icon: '💰', color: 'bg-rose-500', border: 'border-rose-700' },
+                             { id: 'planteo_ecuaciones', name: 'Planteo de Ecuaciones', sub: 'Traducción algebraica de enunciados', icon: '📊', color: 'bg-emerald-500', border: 'border-emerald-700' }
+                           ],
+                           bimestre4: [
+                             { id: 'analisis_combinatorio', name: 'Análisis Combinatorio', sub: 'Permutaciones lineales, circulares y combinaciones', icon: '🔢', color: 'bg-indigo-600', border: 'border-indigo-800' },
+                             { id: 'probabilidades', name: 'Cálculo de Probabilidades', sub: 'Regla de Laplace y sucesos independientes', icon: '🎲', color: 'bg-teal-500', border: 'border-teal-700' },
+                             { id: 'sucesiones_series_5to', name: 'Sucesiones y Series Notables', sub: 'Suma de cuadrados, cubos y serie infinita', icon: '📈', color: 'bg-orange-500', border: 'border-orange-700' },
+                             { id: 'logaritmos_rm', name: 'Operadores y Logaritmos', sub: 'Leyes de definición y propiedades logarítmicas', icon: '🧮', color: 'bg-cyan-600', border: 'border-cyan-800' },
+                             { id: 'maximos_minimos', name: 'Máximos y Mínimos', sub: 'Optimización algebraica y certeza extrema', icon: '⛰️', color: 'bg-fuchsia-600', border: 'border-fuchsia-800' },
+                             { id: 'suficiencia_datos', name: 'Suficiencia de Datos', sub: 'Evaluación lógica de datos I y II', icon: '⚖️', color: 'bg-slate-700', border: 'border-slate-900' }
+                           ]
+                         } : {
+                           bimestre3: [
+                             { id: 'metodos', name: 'Métodos Operativos', sub: 'Método del Cangrejo y del Rombo', icon: '🧠', color: 'bg-blue-500', border: 'border-blue-700' },
+                             { id: 'cripto', name: 'Criptoaritmética', sub: 'Reconstrucción de cifras ocultas', icon: '🔢', color: 'bg-emerald-500', border: 'border-emerald-700' },
+                             { id: 'logica', name: 'Lógica Recreativa', sub: 'Relaciones de tiempo y parentesco familiar', icon: '🎲', color: 'bg-amber-500', border: 'border-amber-700' },
+                             { id: 'cronometria', name: 'Cronometría Básica', sub: 'Campanadas, intervalos y tiempo transcurrido', icon: '⏱️', color: 'bg-purple-500', border: 'border-purple-700' },
+                             { id: 'conteo', name: 'Conteo de Figuras', sub: 'Fórmula inductiva para segmentos y triángulos', icon: '📐', color: 'bg-rose-500', border: 'border-rose-700' }
+                           ],
+                           bimestre4: [
+                             { id: 'sucesiones', name: 'Sucesiones y Analogías', sub: 'Patrones numéricos de 1er y 2do orden', icon: '🔗', color: 'bg-indigo-600', border: 'border-indigo-800' },
+                             { id: 'series', name: 'Series y Sumatorias', sub: 'Suma de Gauss, pares e impares consecutivos', icon: '➕', color: 'bg-teal-500', border: 'border-teal-700' },
+                             { id: 'operadores', name: 'Operadores Matemáticos', sub: 'Reglas de definición arbitraria', icon: '⚙️', color: 'bg-orange-500', border: 'border-orange-700' },
+                             { id: 'fracciones_rm', name: 'Fracciones y Porcentajes', sub: 'Relación parte-todo y tanto por ciento', icon: '📊', color: 'bg-cyan-600', border: 'border-cyan-800' },
+                             { id: 'certezas', name: 'Certezas y Conteo', sub: 'Estrategia del peor de los casos', icon: '🎯', color: 'bg-fuchsia-600', border: 'border-fuchsia-800' }
+                           ]
+                         };
+
+                         const renderTopicGrid = (list: typeof courseCurriculum.bimestre3, badgeText: string, badgeBg: string) => (
+                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                             {list.map((topic) => {
+                               const topicProgress = infiniteProgress[topic.id] || 0;
+                               return (
+                                 <div 
+                                   key={topic.id} 
+                                   onClick={() => {
+                                     setSelectedTopic(topic.id);
+                                     playClickSound();
+                                     setViewMode('infinite_map');
+                                   }}
+                                   className="bg-white p-5 rounded-3xl border-2 border-b-[6px] border-slate-200 hover:border-slate-400 transition-all cursor-pointer group hover:-translate-y-1 flex flex-col justify-between text-left min-w-0"
+                                 >
+                                   <div>
+                                     <div className="flex items-center justify-between gap-2 mb-3">
+                                       <div className={`w-13 h-13 ${topic.color} border-2 border-b-4 ${topic.border} rounded-2xl flex items-center justify-center text-2xl shrink-0 group-hover:scale-105 transition-transform`}>
+                                         {topic.icon}
+                                       </div>
+                                       <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg ${badgeBg}`}>
+                                         {badgeText}
+                                       </span>
+                                     </div>
+                                     <h3 className="font-black text-slate-900 text-base md:text-lg leading-tight break-words">{topic.name}</h3>
+                                     <p className="text-xs font-bold text-slate-500 mt-1 leading-snug">{topic.sub}</p>
+                                   </div>
+                                   <div className="mt-4 pt-3 border-t-2 border-slate-100 flex items-center justify-between">
+                                     <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
+                                       Nivel {topicProgress}
+                                     </span>
+                                     <span className="text-xs font-black text-blue-600 group-hover:translate-x-1 transition-transform">
+                                       Practicar →
+                                     </span>
+                                   </div>
+                                 </div>
+                               );
+                             })}
+                           </div>
+                         );
+
+                         return (
+                           <div className="space-y-8 pb-12">
+                             {/* SECCIÓN 1: TERCER BIMESTRE */}
+                             <div>
+                               <div className="flex items-center gap-3 mb-4">
+                                 <span className="px-3.5 py-1.5 rounded-xl bg-blue-600 border-b-4 border-blue-800 text-white font-black text-xs uppercase tracking-widest">
+                                   Tercer Bimestre
+                                 </span>
+                                 <span className="text-xs font-black text-slate-500 uppercase tracking-wider">
+                                   {courseCurriculum.bimestre3.length} Temas Base
+                                 </span>
+                                 <div className="flex-1 h-0.5 bg-slate-200 rounded-full" />
+                               </div>
+                               {renderTopicGrid(courseCurriculum.bimestre3, 'III Bimestre', 'bg-blue-50 text-blue-700 border border-blue-200')}
+                             </div>
+
+                             {/* SECCIÓN 2: CUARTO BIMESTRE */}
+                             <div>
+                               <div className="flex items-center gap-3 mb-4">
+                                 <span className="px-3.5 py-1.5 rounded-xl bg-violet-600 border-b-4 border-violet-800 text-white font-black text-xs uppercase tracking-widest">
+                                   Cuarto Bimestre
+                                 </span>
+                                 <span className="text-xs font-black text-slate-500 uppercase tracking-wider">
+                                   {courseCurriculum.bimestre4.length} Temas de Continuación
+                                 </span>
+                                 <div className="flex-1 h-0.5 bg-slate-200 rounded-full" />
+                               </div>
+                               {renderTopicGrid(courseCurriculum.bimestre4, 'IV Bimestre', 'bg-violet-50 text-violet-700 border border-violet-200')}
+                             </div>
+                           </div>
+                         );
+                       })()}
                      </div>
                   </div>
                 </div>
@@ -2019,280 +2194,468 @@ export default function App() {
               </TabTransition>)}
 
               {viewMode === 'shop' && (<TabTransition type="swipe" key="shop">
-                <div key="shop" className={`absolute inset-0 overflow-y-auto p-4 md:p-8 no-scrollbar ${currentThemeStyle.bgClass} ${currentThemeStyle.textPrimary}`}>
-                  <div className="max-w-4xl mx-auto pb-32">
-                    {/* Header */}
-                    <div className={`p-6 rounded-3xl border-2 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4 ${currentThemeStyle.cardBg}`}>
-                       <div>
-                         <h2 className="text-3xl md:text-4xl font-black tracking-tight flex items-center gap-2">
-                           <Icon name="store" size={32} className="text-blue-500" /> Tienda
-                         </h2>
-                         <p className={`font-bold mt-1 text-xs md:text-sm ${currentThemeStyle.textSecondary}`}>Invierte tus monedas en ventajas estratégicas y personalización.</p>
-                       </div>
-                       <div className={`px-5 py-2.5 rounded-2xl border-2 flex items-center gap-2.5 w-fit shrink-0 ${currentThemeStyle.bentoBg}`}>
-                         <Icon name="coins" size={24} className="text-amber-500" />
-                         <span className="text-xl font-black">{coins}</span>
-                       </div>
+                <div key="shop" className={`absolute inset-0 overflow-y-auto p-4 md:p-7 no-scrollbar ${currentThemeStyle.bgClass} ${currentThemeStyle.textPrimary}`}>
+                  <div className="max-w-4xl mx-auto pb-24">
+                    {/* Cabecera compacta + Billetera doble */}
+                    <div className={`p-5 md:p-6 rounded-3xl border-2 shadow-sm flex flex-col gap-5 mb-6 ${currentThemeStyle.cardBg}`}>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                          <h2 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2.5">
+                            <span className="w-10 h-10 rounded-2xl bg-blue-500/10 text-blue-500 flex items-center justify-center">
+                              <Icon name="store" size={24} />
+                            </span>
+                            Tienda Escolar
+                          </h2>
+                          <p className={`font-bold mt-1 text-xs md:text-sm ${currentThemeStyle.textSecondary}`}>
+                            Explora cada categoría: mejora tu partida, abre cofres con tickets o personaliza tu tema.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2.5 shrink-0">
+                          <div className={`px-4 py-2 rounded-2xl border-2 flex items-center gap-2 ${currentThemeStyle.bentoBg}`} title="Tus Monedas">
+                            <Icon name="coins" size={22} className="text-amber-500" />
+                            <div className="leading-tight">
+                              <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Monedas</span>
+                              <span className="text-base font-black">{coins}</span>
+                            </div>
+                          </div>
+                          <div className={`px-4 py-2 rounded-2xl border-2 flex items-center gap-2 ${currentThemeStyle.bentoBg}`} title="Tus Tickets">
+                            <Icon name="ticket" size={22} className="text-purple-500" />
+                            <div className="leading-tight">
+                              <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Tickets</span>
+                              <span className="text-base font-black">{tickets}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Barra de Pestañas Interactivas */}
+                      <div className="grid grid-cols-3 gap-2 p-1.5 rounded-2xl bg-slate-200/70 dark:bg-slate-800/70">
+                        {[
+                          { id: 'powers' as const, label: 'Poderes', sub: '6 mejoras', icon: 'zap', badge: shieldCount > 0 || isSupernova || activeDoubleDividends ? 'Activo' : null },
+                          { id: 'chests' as const, label: 'Cofres', sub: '3 cofres', icon: 'gift', badge: tickets >= 100 ? '¡Abre!' : null },
+                          { id: 'themes' as const, label: 'Estilos', sub: `${purchasedThemes.length}/${themes.length} temas`, icon: 'sparkles', badge: null },
+                        ].map((tab) => {
+                          const active = shopTab === tab.id;
+                          return (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => { playClickSound(); setShopTab(tab.id); }}
+                              className={`relative py-2.5 px-3 rounded-xl font-black text-left transition-all flex items-center gap-2.5 cursor-pointer ${
+                                active
+                                  ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-sm'
+                                  : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-900/40'
+                              }`}
+                            >
+                              <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${active ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600' : 'bg-slate-300/60 dark:bg-slate-700/60'}`}>
+                                <Icon name={tab.icon} size={18} />
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs sm:text-sm font-black truncate">{tab.label}</span>
+                                  {tab.badge && (
+                                    <span className="hidden sm:inline-block px-1.5 py-0.5 text-[9px] font-black uppercase rounded-full bg-amber-400/20 text-amber-600 dark:text-amber-300">
+                                      {tab.badge}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="block text-[10px] font-bold text-slate-400 truncate">{tab.sub}</span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
 
-                    
-                    {/* Section 1: Poderes y Mejoras */}
-                    <h3 className={`text-xl font-black mb-4 flex items-center gap-2 ${currentThemeStyle.textPrimary}`}>
-                      <Icon name="zap" className="text-amber-500" size={22} /> Poderes y Mejoras
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
-                      
-                      {/* Seguro Básico */}
-                      <div className="p-4 sm:p-5 rounded-3xl border-2 border-emerald-100 bg-emerald-50 shadow-sm flex flex-col justify-between transition-all group overflow-hidden">
-                         <div className="flex items-start gap-3 sm:gap-3.5 mb-3">
-                            <div className="w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform filter drop-shadow-sm">
-                              <span className="text-4xl text-blue-500">🛡️</span>
+                    {/* PESTAÑA 1: PODERES Y MEJORAS (6 objetos) */}
+                    {shopTab === 'powers' && (
+                      <div className="animate-fade-in">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {/* 1. Seguro Básico */}
+                          <div className="p-4 rounded-3xl border-2 border-emerald-200 bg-emerald-50/90 text-slate-800 shadow-sm flex flex-col justify-between transition-all hover:-translate-y-0.5">
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-900 text-[10px] font-black uppercase tracking-wider">Protección</span>
+                                <span className="text-emerald-800 font-black text-xs">Tienes: {shieldCount}</span>
+                              </div>
+                              <div className="flex items-start gap-3 my-2">
+                                <div className="w-12 h-12 rounded-2xl bg-white border border-emerald-200 flex items-center justify-center text-3xl shrink-0 shadow-xs">🛡️</div>
+                                <div>
+                                  <h4 className="font-black text-base text-emerald-950 leading-tight">Seguro Básico</h4>
+                                  <p className="text-xs font-bold text-emerald-800/80 mt-1 leading-snug">Cubre tus pérdidas si te equivocas en un ejercicio.</p>
+                                </div>
+                              </div>
                             </div>
-                            <div className="flex-1 min-w-0">
-                               <h4 className="font-black text-sm sm:text-base leading-tight truncate text-emerald-800">Seguro Básico</h4>
-                               <p className="text-[11px] sm:text-xs font-bold leading-snug mt-1 text-emerald-700/80">Cubre tus pérdidas si te equivocas.</p>
-                            </div>
-                         </div>
-                         <div className="flex items-center justify-between gap-2 pt-3 mt-auto flex-wrap">
-                            <span className="text-emerald-700 font-black text-[10px] sm:text-xs shrink-0">Tienes: {shieldCount}</span>
-                            <button 
-                              className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
+                            <button
+                              className="w-full mt-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-emerald-800 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                               onClick={() => {
-                                 if (user.coins >= SHIELD_PRICE) { setUser(prev => prev ? { ...prev, coins: prev.coins - SHIELD_PRICE } : null); setShieldCount(s => s + 1); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
+                                if (user.coins >= SHIELD_PRICE) { setUser(prev => prev ? { ...prev, coins: prev.coins - SHIELD_PRICE } : null); setShieldCount(s => s + 1); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
                               }}
                             >
-                               {SHIELD_PRICE} <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
+                              Comprar por {SHIELD_PRICE} <Icon name="coins" size={16} />
                             </button>
-                         </div>
-                      </div>
+                          </div>
 
-                      {/* Póliza Premium x3 */}
-                      <div className="p-4 sm:p-5 rounded-3xl border-2 border-emerald-100 bg-emerald-50 shadow-sm flex flex-col justify-between transition-all group overflow-hidden">
-                         <div className="flex items-start gap-3 sm:gap-3.5 mb-3">
-                            <div className="w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform filter drop-shadow-sm">
-                              <span className="text-4xl">🔰</span>
+                          {/* 2. Póliza Premium x3 */}
+                          <div className="p-4 rounded-3xl border-2 border-teal-200 bg-teal-50/90 text-slate-800 shadow-sm flex flex-col justify-between transition-all hover:-translate-y-0.5">
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="px-2 py-0.5 rounded-full bg-teal-200/80 text-teal-900 text-[10px] font-black uppercase tracking-wider">Pack Ahorro</span>
+                                <span className="text-teal-800 font-black text-xs">+3 escudos</span>
+                              </div>
+                              <div className="flex items-start gap-3 my-2">
+                                <div className="w-12 h-12 rounded-2xl bg-white border border-teal-200 flex items-center justify-center text-3xl shrink-0 shadow-xs">🔰</div>
+                                <div>
+                                  <h4 className="font-black text-base text-teal-950 leading-tight">Póliza Premium x3</h4>
+                                  <p className="text-xs font-bold text-teal-800/80 mt-1 leading-snug">3 seguros contra errores de cálculo a precio reducido.</p>
+                                </div>
+                              </div>
                             </div>
-                            <div className="flex-1 min-w-0">
-                               <h4 className="font-black text-sm sm:text-base leading-tight truncate text-emerald-800">Póliza Premium x3</h4>
-                               <p className="text-[11px] sm:text-xs font-bold leading-snug mt-1 text-emerald-700/80">3 Seguros contra errores de cálculo.</p>
-                            </div>
-                         </div>
-                         <div className="flex items-center justify-between gap-2 pt-3 mt-auto flex-wrap">
-                            <span className="text-emerald-700 font-black text-[10px] sm:text-xs shrink-0">Ahorro especial</span>
-                            <button 
-                              className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
+                            <button
+                              className="w-full mt-3 py-2.5 bg-teal-600 hover:bg-teal-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-teal-800 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                               onClick={() => {
-                                 if (user.coins >= SHIELD_PACK_PRICE) { setUser(prev => prev ? { ...prev, coins: prev.coins - SHIELD_PACK_PRICE } : null); setShieldCount(s => s + 3); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
+                                if (user.coins >= SHIELD_PACK_PRICE) { setUser(prev => prev ? { ...prev, coins: prev.coins - SHIELD_PACK_PRICE } : null); setShieldCount(s => s + 3); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
                               }}
                             >
-                               {SHIELD_PACK_PRICE} <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
+                              Comprar por {SHIELD_PACK_PRICE} <Icon name="coins" size={16} />
                             </button>
-                         </div>
-                      </div>
+                          </div>
 
-                      {/* Rally Alcista */}
-                      <div className="p-4 sm:p-5 rounded-3xl border-2 border-fuchsia-100 bg-fuchsia-50 shadow-sm flex flex-col justify-between transition-all group overflow-hidden">
-                         <div className="flex items-start gap-3 sm:gap-3.5 mb-3">
-                            <div className="w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform filter drop-shadow-sm">
-                              <span className="text-4xl">⚡</span>
+                          {/* 3. Rally Alcista */}
+                          <div className="p-4 rounded-3xl border-2 border-fuchsia-200 bg-fuchsia-50/90 text-slate-800 shadow-sm flex flex-col justify-between transition-all hover:-translate-y-0.5">
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="px-2 py-0.5 rounded-full bg-fuchsia-200/80 text-fuchsia-900 text-[10px] font-black uppercase tracking-wider">Supernova</span>
+                                <span className="text-fuchsia-800 font-black text-xs">{isSupernova ? '¡Activo!' : 'Listo'}</span>
+                              </div>
+                              <div className="flex items-start gap-3 my-2">
+                                <div className="w-12 h-12 rounded-2xl bg-white border border-fuchsia-200 flex items-center justify-center text-3xl shrink-0 shadow-xs">⚡</div>
+                                <div>
+                                  <h4 className="font-black text-base text-fuchsia-950 leading-tight">Rally Alcista</h4>
+                                  <p className="text-xs font-bold text-fuchsia-800/80 mt-1 leading-snug">Tu próximo acierto activa la Supernova con tickets extra.</p>
+                                </div>
+                              </div>
                             </div>
-                            <div className="flex-1 min-w-0">
-                               <h4 className="font-black text-sm sm:text-base leading-tight truncate text-fuchsia-800">Rally Alcista</h4>
-                               <p className="text-[11px] sm:text-xs font-bold leading-snug mt-1 text-fuchsia-700/80">Tu próximo acierto activa la Supernova: tickets extra.</p>
-                            </div>
-                         </div>
-                         <div className="flex items-center justify-between gap-2 pt-3 mt-auto flex-wrap">
-                             <span className="text-fuchsia-700 font-black text-[10px] sm:text-xs shrink-0">{isSupernova ? 'Ya activo' : ''}</span>
-                            <button 
-                              className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto disabled:opacity-50" 
+                            <button
                               disabled={isSupernova}
+                              className="w-full mt-3 py-2.5 bg-fuchsia-600 hover:bg-fuchsia-500 active:scale-95 disabled:opacity-50 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-fuchsia-800 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                               onClick={() => {
-                                 if (user.coins >= SUPERNOVA_PRICE) { setUser(prev => prev ? { ...prev, coins: prev.coins - SUPERNOVA_PRICE } : null); setIsSupernova(true); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
+                                if (user.coins >= SUPERNOVA_PRICE) { setUser(prev => prev ? { ...prev, coins: prev.coins - SUPERNOVA_PRICE } : null); setIsSupernova(true); playClickSound(); } else { showToast("No tienes suficientes monedas."); }
                               }}
                             >
-                               {SUPERNOVA_PRICE} <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
+                              {isSupernova ? 'Ya activo' : <>Comprar por {SUPERNOVA_PRICE} <Icon name="coins" size={16} /></>}
                             </button>
-                         </div>
-                      </div>
-
-                      {/* Dividendos x2 */}
-                      <div className="p-4 sm:p-5 rounded-3xl border-2 border-blue-100 bg-blue-50 shadow-sm flex flex-col justify-between transition-all group overflow-hidden">
-                         <div className="flex items-start gap-3 sm:gap-3.5 mb-3">
-                            <div className="w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform filter drop-shadow-sm">
-                              <span className="text-4xl text-rose-500">🎟️</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                               <h4 className="font-black text-sm sm:text-base leading-tight truncate text-blue-800">Dividendos x2</h4>
-                               <p className="text-[11px] sm:text-xs font-bold leading-snug mt-1 text-blue-700/80">Doble de tickets en tu próximo acierto.</p>
-                            </div>
-                         </div>
-                         <div className="flex items-center justify-between gap-2 pt-3 mt-auto flex-wrap">
-                            <span className="text-blue-700 font-black text-[10px] sm:text-xs shrink-0">{activeDoubleDividends ? 'Activo' : 'Inactivo'}</span>
-                            <button 
-                              className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
-                              onClick={() => {
-                                 if (user.coins >= DOUBLE_PRICE && !activeDoubleDividends) { setUser(prev => prev ? { ...prev, coins: prev.coins - DOUBLE_PRICE } : null); setActiveDoubleDividends(true); playClickSound(); } else if (activeDoubleDividends) { showToast("Ya tienes este poder activo.", "info"); } else { showToast("No tienes suficientes monedas."); }
-                              }}
-                            >
-                               {DOUBLE_PRICE} <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
-                            </button>
-                         </div>
-                      </div>
-
-                      {/* Inyección de Capital */}
-                      <div className="p-4 sm:p-5 rounded-3xl border-2 border-amber-100 bg-amber-50/50 shadow-sm flex flex-col justify-between transition-all group overflow-hidden">
-                         <div className="flex items-start gap-3 sm:gap-3.5 mb-3">
-                            <div className="w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform filter drop-shadow-sm">
-                              <span className="text-4xl">💰</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                               <h4 className="font-black text-sm sm:text-base leading-tight truncate text-amber-800">Inyección de Capital</h4>
-                               <p className="text-[11px] sm:text-xs font-bold leading-snug mt-1 text-amber-700/80">Doble de monedas (5 aciertos).</p>
-                            </div>
-                         </div>
-                         <div className="flex items-center justify-between gap-2 pt-3 mt-auto flex-wrap">
-                            <span className="text-amber-700 font-black text-[10px] sm:text-xs shrink-0">Boost activo</span>
-                            <button 
-                              className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
-                              onClick={() => {
-                                 showToast("Disponible próximamente", "info");
-                              }}
-                            >
-                               250 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
-                            </button>
-                         </div>
-                      </div>
-
-                      {/* Contrato Seguro */}
-                      <div className="p-4 sm:p-5 rounded-3xl border-2 border-rose-100 bg-rose-50 shadow-sm flex flex-col justify-between transition-all group overflow-hidden">
-                         <div className="flex items-start gap-3 sm:gap-3.5 mb-3">
-                            <div className="w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform filter drop-shadow-sm">
-                              <span className="text-4xl">🎁</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                               <h4 className="font-black text-sm sm:text-base leading-tight truncate text-rose-800">Contrato Seguro</h4>
-                               <p className="text-[11px] sm:text-xs font-bold leading-snug mt-1 text-rose-700/80">Caja Fuerte garantizada en tu próximo acierto.</p>
-                            </div>
-                         </div>
-                         <div className="flex items-center justify-between gap-2 pt-3 mt-auto flex-wrap">
-                            <span className="text-rose-700 font-black text-[10px] sm:text-xs shrink-0">Garantía</span>
-                            <button 
-                              className="px-6 py-2 bg-slate-400 hover:bg-slate-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-slate-600 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto" 
-                              onClick={() => {
-                                 showToast("Disponible próximamente", "info");
-                              }}
-                            >
-                               180 <Icon name="coins" size={16} className="text-amber-400 drop-shadow-sm" />
-                            </button>
-                         </div>
-                      </div>
-
-                    </div>
-
-                    {/* Section 2: Cofres */}
-                    <h3 className={`text-xl font-black mb-4 flex items-center gap-2 ${currentThemeStyle.textPrimary}`}>
-                      <Icon name="gift" className="text-amber-500" size={22} /> Cofres de Recompensas
-                    </h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
-                       {/* Cofre Básico */}
-                       <div className={`p-5 rounded-3xl border-2 shadow-sm flex flex-col items-center text-center hover:-translate-y-1 transition-all ${currentThemeStyle.bentoBg}`}>
-                          <div className="w-16 h-16 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center my-2 text-slate-600 dark:text-slate-300">
-                            <Icon name="box" size={38} />
                           </div>
-                          <h4 className="font-black text-base mt-1">Cofre Básico</h4>
-                          <p className={`text-xs font-bold mt-1 mb-4 ${currentThemeStyle.textSecondary}`}>Premios estándar y tickets.</p>
-                          <button 
-                            className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-sm border-b-4 border-slate-900 transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-auto" 
-                            onClick={() => {
-                              if (user.tickets >= 100) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 100 } : null); openRandomChest('common'); playClickSound(); } else { showToast("No tienes suficientes tickets."); }
-                            }}
-                          >
-                            <Icon name="coins" size={16} /> 500
-                          </button>
-                       </div>
 
-                       {/* Cofre Raro */}
-                       <div className={`p-5 rounded-3xl border-2 border-blue-300 shadow-sm flex flex-col items-center text-center hover:-translate-y-1 transition-all relative overflow-hidden ${currentThemeStyle.bentoBg}`}>
-                          <div className="absolute inset-0 bg-blue-500/5 z-0 pointer-events-none"></div>
-                          <div className="w-16 h-16 rounded-2xl bg-blue-50 dark:bg-blue-900/40 flex items-center justify-center my-2 text-blue-500 relative z-10">
-                            <Icon name="diamond" size={38} />
-                          </div>
-                          <h4 className="font-black text-base text-blue-500 relative z-10 mt-1">Cofre Raro</h4>
-                          <p className={`text-xs font-bold mt-1 mb-4 relative z-10 ${currentThemeStyle.textSecondary}`}>Mejores recompensas garantizadas.</p>
-                          <button 
-                            className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-sm border-b-4 border-blue-800 transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-auto relative z-10" 
-                            onClick={() => {
-                              if (user.tickets >= 300) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 300 } : null); openRandomChest('rare'); playClickSound(); } else { showToast("No tienes suficientes tickets."); }
-                            }}
-                          >
-                            <Icon name="ticket" size={16} /> 300
-                          </button>
-                       </div>
-
-                       {/* Cofre Épico */}
-                       <div className={`p-5 rounded-3xl border-2 border-amber-300 shadow-sm flex flex-col items-center text-center hover:-translate-y-1 transition-all relative overflow-hidden ${currentThemeStyle.bentoBg}`}>
-                          <div className="absolute inset-0 bg-amber-500/5 z-0 pointer-events-none"></div>
-                          <span className="absolute top-3 right-3 text-[9px] font-black bg-rose-500 text-white px-2 py-0.5 rounded-full z-10 animate-pulse tracking-wider">HOT</span>
-                          <div className="w-16 h-16 rounded-2xl bg-amber-50 dark:bg-amber-900/40 flex items-center justify-center my-2 text-amber-500 relative z-10">
-                            <Icon name="crown" size={38} />
-                          </div>
-                          <h4 className="font-black text-base text-amber-500 relative z-10 mt-1">Cofre Épico</h4>
-                          <p className={`text-xs font-bold mt-1 mb-4 relative z-10 ${currentThemeStyle.textSecondary}`}>Premios masivos sorpresa.</p>
-                          <button 
-                            className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 active:scale-95 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-sm border-b-4 border-amber-700 transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-auto relative z-10" 
-                            onClick={() => {
-                              if (user.tickets >= 1000) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 1000 } : null); openRandomChest('legendary'); playClickSound(); } else { showToast("No tienes suficientes tickets."); }
-                            }}
-                          >
-                            <Icon name="ticket" size={16} /> 1000
-                          </button>
-                       </div>
-                    </div>
-
-                    {/* Section 3: Estilos Visuales */}
-                    <h3 className={`text-xl font-black mb-4 flex items-center gap-2 ${currentThemeStyle.textPrimary}`}>
-                      <Icon name="sparkles" className="text-blue-500" size={22} /> Estilos Visuales
-                    </h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                       {themes.map(th => {
-                         const style = THEME_STYLES[th.id];
-                         const isEquipped = activeTheme === th.id;
-                         const isPurchased = purchasedThemes.includes(th.id);
-                         const isIconKey = style?.emoji && (style.emoji.length > 2 || /^[a-z_]+$/i.test(style.emoji));
-
-                         return (
-                           <div key={th.id} className={`p-5 border-2 rounded-3xl flex flex-col justify-between shadow-sm transition-all gap-4 ${style?.bezelClass || 'bg-slate-50 border-slate-200'}`}>
-                              <div className="flex items-center gap-3.5 min-w-0">
-                                 <div className="w-12 h-12 rounded-2xl bg-white/80 dark:bg-black/30 flex items-center justify-center shrink-0 border border-slate-200/50 shadow-inner">
-                                   {isIconKey ? (
-                                     <Icon name={style.emoji} size={26} className={style?.accentText || "text-blue-500"} />
-                                   ) : (
-                                     <span className="text-2xl">{style?.emoji || '✨'}</span>
-                                   )}
-                                 </div>
-                                 <div className="min-w-0 flex-1">
-                                    <h5 className={`font-black text-base truncate ${style?.textPrimary || 'text-slate-800'}`}>{th.name}</h5>
-                                    <p className={`text-xs font-bold leading-snug ${style?.textSecondary || 'text-slate-500'}`}>{th.desc}</p>
-                                 </div>
+                          {/* 4. Dividendos x2 */}
+                          <div className="p-4 rounded-3xl border-2 border-blue-200 bg-blue-50/90 text-slate-800 shadow-sm flex flex-col justify-between transition-all hover:-translate-y-0.5">
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="px-2 py-0.5 rounded-full bg-blue-200/80 text-blue-900 text-[10px] font-black uppercase tracking-wider">Multiplicador</span>
+                                <span className="text-blue-800 font-black text-xs">{activeDoubleDividends ? '¡Activo!' : 'Inactivo'}</span>
                               </div>
-                              <div className="pt-3 border-t border-slate-200/40 dark:border-slate-700/40 flex justify-end mt-auto">
-                                 <button 
-                                   onClick={() => handleThemeClick(th)}
-                                   className={`w-full sm:w-auto px-4 py-2 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer shrink-0 ${
-                                     isEquipped 
-                                       ? 'bg-slate-300 dark:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-default opacity-80' 
-                                       : isPurchased 
-                                       ? 'bg-blue-600 hover:bg-blue-500 active:scale-95 text-white border-b-4 border-blue-800' 
-                                       : 'bg-amber-500 hover:bg-amber-400 active:scale-95 text-white border-b-4 border-amber-700'
-                                   }`}
-                                 >
-                                   {isEquipped ? 'Equipado' : isPurchased ? 'Equipar' : <><Icon name="coins" size={16} /> {th.price}</>}
-                                 </button>
+                              <div className="flex items-start gap-3 my-2">
+                                <div className="w-12 h-12 rounded-2xl bg-white border border-blue-200 flex items-center justify-center text-3xl shrink-0 shadow-xs">🎟️</div>
+                                <div>
+                                  <h4 className="font-black text-base text-blue-950 leading-tight">Dividendos x2</h4>
+                                  <p className="text-xs font-bold text-blue-800/80 mt-1 leading-snug">Recibe el doble de tickets en tu próximo acierto.</p>
+                                </div>
                               </div>
-                           </div>
-                         )
-                       })}
-                    </div>
+                            </div>
+                            <button
+                              className="w-full mt-3 py-2.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-blue-800 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                              onClick={() => {
+                                if (user.coins >= DOUBLE_PRICE && !activeDoubleDividends) { setUser(prev => prev ? { ...prev, coins: prev.coins - DOUBLE_PRICE } : null); setActiveDoubleDividends(true); playClickSound(); } else if (activeDoubleDividends) { showToast("Ya tienes este poder activo.", "info"); } else { showToast("No tienes suficientes monedas."); }
+                              }}
+                            >
+                              {activeDoubleDividends ? 'Ya activo' : <>Comprar por {DOUBLE_PRICE} <Icon name="coins" size={16} /></>}
+                            </button>
+                          </div>
+
+                          {/* 5. Inyección de Capital */}
+                          <div className="p-4 rounded-3xl border-2 border-amber-200 bg-amber-50/90 text-slate-800 shadow-sm flex flex-col justify-between transition-all hover:-translate-y-0.5">
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900 text-[10px] font-black uppercase tracking-wider">Capital</span>
+                                <span className="text-amber-800 font-black text-xs">5 aciertos</span>
+                              </div>
+                              <div className="flex items-start gap-3 my-2">
+                                <div className="w-12 h-12 rounded-2xl bg-white border border-amber-200 flex items-center justify-center text-3xl shrink-0 shadow-xs">💰</div>
+                                <div>
+                                  <h4 className="font-black text-base text-amber-950 leading-tight">Inyección de Capital</h4>
+                                  <p className="text-xs font-bold text-amber-800/80 mt-1 leading-snug">Doble de monedas durante los próximos 5 aciertos.</p>
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              className="w-full mt-3 py-2.5 bg-amber-500 hover:bg-amber-400 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-amber-700 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                              onClick={() => {
+                                showToast("Disponible próximamente", "info");
+                              }}
+                            >
+                              Comprar por 250 <Icon name="coins" size={16} />
+                            </button>
+                          </div>
+
+                          {/* 6. Contrato Seguro */}
+                          <div className="p-4 rounded-3xl border-2 border-rose-200 bg-rose-50/90 text-slate-800 shadow-sm flex flex-col justify-between transition-all hover:-translate-y-0.5">
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="px-2 py-0.5 rounded-full bg-rose-200/80 text-rose-900 text-[10px] font-black uppercase tracking-wider">Garantía</span>
+                                <span className="text-rose-800 font-black text-xs">Especial</span>
+                              </div>
+                              <div className="flex items-start gap-3 my-2">
+                                <div className="w-12 h-12 rounded-2xl bg-white border border-rose-200 flex items-center justify-center text-3xl shrink-0 shadow-xs">🎁</div>
+                                <div>
+                                  <h4 className="font-black text-base text-rose-950 leading-tight">Contrato Seguro</h4>
+                                  <p className="text-xs font-bold text-rose-800/80 mt-1 leading-snug">Caja Fuerte garantizada en tu próximo acierto.</p>
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              className="w-full mt-3 py-2.5 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-black text-sm rounded-xl shadow-sm border-b-4 border-rose-800 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                              onClick={() => {
+                                showToast("Disponible próximamente", "info");
+                              }}
+                            >
+                              Comprar por 180 <Icon name="coins" size={16} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* PESTAÑA 2: COFRES DE RECOMPENSAS (3 cofres) */}
+                    {shopTab === 'chests' && (
+                      <div className="animate-fade-in space-y-5">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                          {/* Cofre Básico */}
+                          <div className={`p-6 rounded-3xl border-2 shadow-sm flex flex-col items-center text-center hover:-translate-y-1 transition-all ${currentThemeStyle.bentoBg}`}>
+                            <span className="px-2.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-black uppercase tracking-wider">
+                              Común
+                            </span>
+                            <div className="w-20 h-20 rounded-3xl bg-amber-50 dark:bg-slate-800 border-2 border-amber-200/60 flex items-center justify-center my-4">
+                              <Icon name="box" size={46} />
+                            </div>
+                            <h4 className="font-black text-lg">Cofre Básico</h4>
+                            <p className={`text-xs font-bold mt-1 mb-5 ${currentThemeStyle.textSecondary}`}>
+                              Premios estándar, monedas y probabilidad de piezas de álbum.
+                            </p>
+                            <button
+                              className="w-full py-3 bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-sm border-b-4 border-slate-900 transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-auto"
+                              onClick={() => {
+                                if (user.tickets >= 100) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 100 } : null); openRandomChest('common'); playClickSound(); } else { showToast("No tienes suficientes tickets."); }
+                              }}
+                            >
+                              Abrir por 100 <Icon name="ticket" size={16} />
+                            </button>
+                          </div>
+
+                          {/* Cofre Raro */}
+                          <div className={`p-6 rounded-3xl border-2 border-blue-400 shadow-sm flex flex-col items-center text-center hover:-translate-y-1 transition-all relative overflow-hidden ${currentThemeStyle.bentoBg}`}>
+                            <div className="absolute inset-0 bg-blue-500/5 z-0 pointer-events-none"></div>
+                            <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-black uppercase tracking-wider relative z-10">
+                              Raro
+                            </span>
+                            <div className="w-20 h-20 rounded-3xl bg-blue-50 dark:bg-blue-900/40 border-2 border-blue-200 flex items-center justify-center my-4 text-blue-500 relative z-10">
+                              <Icon name="diamond" size={46} />
+                            </div>
+                            <h4 className="font-black text-lg text-blue-500 relative z-10">Cofre Raro</h4>
+                            <p className={`text-xs font-bold mt-1 mb-5 relative z-10 ${currentThemeStyle.textSecondary}`}>
+                              Mejores recompensas garantizadas y piezas de colección.
+                            </p>
+                            <button
+                              className="w-full py-3 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-sm border-b-4 border-blue-800 transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-auto relative z-10"
+                              onClick={() => {
+                                if (user.tickets >= 300) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 300 } : null); openRandomChest('rare'); playClickSound(); } else { showToast("No tienes suficientes tickets."); }
+                              }}
+                            >
+                              Abrir por 300 <Icon name="ticket" size={16} />
+                            </button>
+                          </div>
+
+                          {/* Cofre Épico */}
+                          <div className={`p-6 rounded-3xl border-2 border-amber-400 shadow-sm flex flex-col items-center text-center hover:-translate-y-1 transition-all relative overflow-hidden ${currentThemeStyle.bentoBg}`}>
+                            <div className="absolute inset-0 bg-amber-500/5 z-0 pointer-events-none"></div>
+                            <span className="px-2.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black uppercase tracking-wider relative z-10 animate-pulse">
+                              Épico • HOT
+                            </span>
+                            <div className="w-20 h-20 rounded-3xl bg-amber-50 dark:bg-amber-900/40 border-2 border-amber-200 flex items-center justify-center my-4 text-amber-500 relative z-10">
+                              <Icon name="crown" size={46} />
+                            </div>
+                            <h4 className="font-black text-lg text-amber-500 relative z-10">Cofre Épico</h4>
+                            <p className={`text-xs font-bold mt-1 mb-5 relative z-10 ${currentThemeStyle.textSecondary}`}>
+                              Premios masivos sorpresa y alta probabilidad de piezas raras.
+                            </p>
+                            <button
+                              className="w-full py-3 bg-amber-500 hover:bg-amber-400 active:scale-95 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-sm border-b-4 border-amber-700 transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-auto relative z-10"
+                              onClick={() => {
+                                if (user.tickets >= 1000) { setUser(prev => prev ? { ...prev, tickets: prev.tickets - 1000 } : null); openRandomChest('legendary'); playClickSound(); } else { showToast("No tienes suficientes tickets."); }
+                              }}
+                            >
+                              Abrir por 1000 <Icon name="ticket" size={16} />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className={`p-4 rounded-2xl border-2 flex flex-col sm:flex-row items-center justify-between gap-3 ${currentThemeStyle.cardBg}`}>
+                          <div className="flex items-center gap-3">
+                            <span className="w-10 h-10 rounded-xl bg-teal-500/10 text-teal-500 flex items-center justify-center shrink-0">
+                              <Icon name="folder" size={20} />
+                            </span>
+                            <p className={`text-xs font-bold ${currentThemeStyle.textSecondary}`}>
+                              Las piezas que encuentras en los cofres sirven para armar las figuras de tus <strong className={currentThemeStyle.textPrimary}>Álbumes</strong>.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => { playClickSound(); setViewMode('album'); }}
+                            className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-black text-xs uppercase tracking-wider shrink-0 cursor-pointer transition-colors"
+                          >
+                            Ver Álbumes →
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* PESTAÑA 3: ESTILOS VISUALES (5 temas) */}
+                    {shopTab === 'themes' && (
+                      <div className="animate-fade-in space-y-4">
+                        {previewTheme && (
+                          <div className="p-3.5 rounded-2xl bg-amber-400 border-2 border-b-4 border-amber-600 text-slate-900 flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5 font-black text-xs sm:text-sm">
+                              <Icon name="eye" size={18} />
+                              <span>Estás viendo una vista previa en vivo del estilo seleccionado.</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => { playClickSound(); setPreviewTheme(null); }}
+                              className="px-3 py-1.5 rounded-xl bg-slate-900 text-white font-black text-xs uppercase tracking-wider cursor-pointer"
+                            >
+                              Restaurar mi tema actual
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                          {themes.map(th => {
+                            const style = THEME_STYLES[th.id];
+                            const isEquipped = activeTheme === th.id;
+                            const isPurchased = purchasedThemes.includes(th.id);
+                            const isPreviewing = previewTheme?.id === th.id;
+                            const swatches: [string, string, string] = style?.swatches || ['#F8FAFC', '#FFFFFF', '#3B82F6'];
+
+                            return (
+                              <div
+                                key={th.id}
+                                className={`rounded-3xl border-2 border-b-[6px] overflow-hidden flex flex-col justify-between transition-all hover:-translate-y-1 ${style?.bezelClass || 'bg-white border-slate-200'}`}
+                              >
+                                {/* Mini UI Preview Header (100% solid flat colors) */}
+                                <div
+                                  style={{ backgroundColor: swatches[0] }}
+                                  className="p-4 border-b-2 border-slate-200/60 dark:border-slate-700/60 relative"
+                                >
+                                  <div className="flex items-center justify-between mb-3">
+                                    <span
+                                      style={{ backgroundColor: swatches[2] }}
+                                      className="px-2.5 py-0.5 rounded-md text-white text-[10px] font-black uppercase tracking-widest"
+                                    >
+                                      {style?.tag || 'Estilo'}
+                                    </span>
+                                    <div className="flex items-center gap-1.5">
+                                      {swatches.map((hex, i) => (
+                                        <span
+                                          key={i}
+                                          style={{ backgroundColor: hex }}
+                                          className="w-4 h-4 rounded-full border-2 border-white dark:border-slate-800"
+                                          title={`Color ${hex}`}
+                                        />
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  {/* Mini Mockup Window */}
+                                  <div
+                                    style={{ backgroundColor: swatches[1] }}
+                                    className="rounded-2xl p-3 border-2 border-slate-300/60 dark:border-slate-700 flex items-center gap-3"
+                                  >
+                                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0">
+                                      <Icon name={style?.emoji || 'theme_default'} size={52} />
+                                    </div>
+                                    <div className="flex-1 min-w-0 space-y-1.5">
+                                      <div
+                                        style={{ backgroundColor: swatches[2] }}
+                                        className="h-2.5 w-16 rounded-full"
+                                      />
+                                      <div className="h-2 w-full rounded-full bg-slate-300/70 dark:bg-slate-600/70" />
+                                      <div className="h-2 w-2/3 rounded-full bg-slate-200 dark:bg-slate-700" />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Card Body */}
+                                <div className="p-5 flex-1 flex flex-col justify-between gap-4">
+                                  <div>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <h5 className={`font-black text-lg leading-tight ${style?.textPrimary || 'text-slate-900'}`}>
+                                        {th.name}
+                                      </h5>
+                                      {isEquipped && (
+                                        <span className="px-2.5 py-0.5 rounded-md bg-emerald-500 text-white text-[10px] font-black uppercase tracking-wider">
+                                          Activo
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className={`text-xs font-bold leading-relaxed mt-1.5 ${style?.textSecondary || 'text-slate-500'}`}>
+                                      {th.desc}
+                                    </p>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 pt-2">
+                                    {!isEquipped && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          playClickSound();
+                                          setPreviewTheme(isPreviewing ? null : { id: th.id, price: th.price, isAlreadyPurchased: isPurchased });
+                                        }}
+                                        className={`px-3 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider border-2 border-b-4 transition-all cursor-pointer ${
+                                          isPreviewing
+                                            ? 'bg-indigo-600 text-white border-indigo-800'
+                                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700'
+                                        }`}
+                                        title="Probar cómo se ve en la aplicación"
+                                      >
+                                        {isPreviewing ? 'Viendo' : 'Probar'}
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleThemeClick(th)}
+                                      className={`flex-1 py-2.5 px-4 font-black text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                        isEquipped
+                                          ? 'bg-emerald-600 text-white border-b-4 border-emerald-800 cursor-default'
+                                          : isPurchased
+                                          ? 'bg-blue-600 hover:bg-blue-500 active:translate-y-0.5 text-white border-b-4 border-blue-800'
+                                          : 'bg-amber-500 hover:bg-amber-400 active:translate-y-0.5 text-slate-950 border-b-4 border-amber-700'
+                                      }`}
+                                    >
+                                      {isEquipped ? (
+                                        <>Equipado <Icon name="check" size={15} /></>
+                                      ) : isPurchased ? (
+                                        'Equipar Tema'
+                                      ) : (
+                                        <>Comprar {th.price} <Icon name="coins" size={16} /></>
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </TabTransition>)}
@@ -2719,7 +3082,7 @@ export default function App() {
         <motion.div 
           initial={{ y: 100, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.5, delay: 3.0, ease: "easeOut" }}
+          transition={{ duration: 0.5, delay: 0.2, ease: "easeOut" }}
           className="nav-sidebar lg:hidden landscape:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t-2 border-slate-200 p-2 z-[100] flex justify-around items-center pb-safe"
         >
           {!isStaff && (<>
@@ -2728,7 +3091,7 @@ export default function App() {
             <span className="text-[9px] font-black uppercase tracking-wider">Aprender</span>
           </button>
           <button onClick={() => setViewMode('practice')} className={`p-2 rounded-xl flex flex-col items-center gap-1 ${viewMode === 'practice' ? 'text-blue-500' : 'text-slate-400'}`}>
-            <Icon name="target" />
+            <Icon name="infinity" />
             <span className="text-[9px] font-black uppercase tracking-wider">Infinito</span>
           </button>
           <button onClick={() => setViewMode('album')} className={`p-2 rounded-xl flex flex-col items-center gap-1 relative ${viewMode === 'album' ? 'text-blue-500' : 'text-slate-400'}`}>
